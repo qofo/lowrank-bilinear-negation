@@ -1,7 +1,5 @@
 # Analyzing CLIP's Negation Bottleneck under Object-Level Control with a Low-Rank Bilinear Transform
 
-**객체 단위 통제로 본 CLIP 부정 이해의 병목 분석과 저계수 이중선형 변환**
-
 [Junseo Lee](mailto:junseolee@ajou.ac.kr), [Hyunsouk Cho](mailto:hyunsouk@ajou.ac.kr)\*
 Department of Software & Computer Engineering, Ajou University
 
@@ -12,51 +10,24 @@ Department of Software & Computer Engineering, Ajou University
 ![Python 3.9](https://img.shields.io/badge/python-3.9-blue.svg)
 ![PyTorch 2.8](https://img.shields.io/badge/PyTorch-2.8-ee4c2c.svg)
 
-[한국어 문서 (README.ko.md)](README.ko.md)
+[한국어](README.ko.md)
 
-<p align="center">
-  <img src="assets/fig1_minimal_pair.png" width="70%" alt="A minimal pair: the same COCO scene with the cups removed and with the pizza removed, crossed with two captions that use the same words but negate different objects. CLIP scores the mismatched pairs above the matched ones.">
-</p>
+This is the official code for our Korea AI 2026 paper (Korean title: 객체 단위 통제로 본 CLIP 부정 이해의 병목 분석과 저계수 이중선형 변환).
 
-CLIP fails on negated queries. We ask *where* the failure happens. We fix the scene by pairing two images
-made from one photo, one with object O removed and one with another object removed, and cross them with two
-captions that contain the same words but negate different objects. This turns negation into a 2×2 decision:
-the two matching image–caption pairs must outscore the two mismatched ones.
+<p align="center"><img src="assets/fig1_minimal_pair.png" width="70%" alt="Figure 1"></p>
 
-We then rule out candidate bottlenecks one stage at a time:
+CLIP is known to struggle with negated queries, but it is less clear which part of the model is responsible. We study this with object-removed images from BEAF. We take two versions of the same photo, each with a different object erased, and pair them with two captions that use the same words but negate different objects ("no cup, but a pizza" / "no pizza, but a cup"). A scorer gets a pair right only if both matching image–caption pairs score higher than both mismatched ones. Random scores would get this right 16.67% of the time; cosine similarity gets 1.35%.
 
-- **Representation.** Linear probes recover object presence from image embeddings and negation from text
-  embeddings, above a randomly initialised encoder.
-- **Alignment.** Rotating the text probe normal onto the image probe normal (cosine 1.000) leaves 2×2 accuracy
-  at about one fifth of chance.
-- **Similarity function.** Replacing the identity matrix hidden inside cosine similarity with a shared
-  low-rank bilinear transform, `S(e_I, e_T) = (U e_I)ᵀ(V e_T)`, improves 2×2 accuracy on objects never seen in
-  training and improves negated items on NegBench MCQ, without retraining either encoder.
+We then check three places the failure could come from. Linear probes read object presence from the image embedding and negation from the text embedding clearly better than a randomly initialized encoder, so the information is there. Rotating the probe directions of the two modalities into perfect alignment only lifts accuracy to 3.25%, so misalignment is not the whole story either. That leaves the similarity function. We replace the identity matrix inside cosine similarity with one low-rank bilinear form, `S = (U e_I)^T (V e_T)`, shared by all objects. It beats chance on objects not seen in training. With both encoders frozen, it also raises negated-item accuracy on NegBench MCQ from 6.84% to 24.22% on COCO and from 3.35% to 22.40% on VOC2007.
 
 ## News
 
-- **2026.10.01**: Oral presentation (online) at Korea AI 2026.
-- **2026.09**: Code, trained matrices and the reference outputs behind every number in the paper are released.
-
-## Method
-
-For an object O, let `T+`/`T−` be a caption that affirms/negates O and `I+`/`I−` an image with/without O.
-Writing `S(u, v)` for the score of caption `T_u` with image `I_v`, a scorer is correct on a pair when
-
-```
-ΔS = min(S(+,+), S(−,−)) − max(S(−,+), S(+,−)) > 0
-```
-
-If the four scores were in random order, this would hold with probability 1/6 (16.67%). Cosine similarity
-meets it on only 1.35% of pairs, so the failure is systematic, not noise.
-
-Cosine similarity is the bilinear form `e_Iᵀ W e_T` with `W = I`. We learn one shared low-rank `W = UᵀV` with
-`U, V ∈ R^{r×n}` (`2nr` parameters instead of `n²`) using a hinge loss on ΔS. One `W` is shared across all
-objects, and it is evaluated on objects held out of training.
+- **2026.10.01** Presented at Korea AI 2026 (online, oral).
+- **2026.09** Code released.
 
 ## Results
 
-**Table 1.** Per-object linear probing accuracy (mean over objects) on image and text embeddings, CLIP ViT-B/32.
+**Table 1.** Per-object linear probing accuracy (averaged over objects), CLIP ViT-B/32.
 
 | Encoder | Image | Text |
 |:--|:--:|:--:|
@@ -64,7 +35,7 @@ objects, and it is evaluated on objects held out of training.
 | OpenCLIP | 0.66 | 0.86 |
 | OpenCLIP (ft) [NegBench] | 0.65 | 0.93 |
 
-**Table 2.** Alignment of per-object probe normals and the resulting 2×2 accuracy.
+**Table 2.** Cosine between the image and text probe normals, and 2×2 accuracy.
 
 | Similarity | cos(d_I, R d_T) | ΔS > 0 (%) |
 |:--|:--:|:--:|
@@ -72,12 +43,11 @@ objects, and it is evaluated on objects held out of training.
 | Orthogonal rotation R_o | 1.000 | 3.25 |
 | Random rotation | 0.002 | 0.12 |
 
-**Figure 2.** 2×2 accuracy of the low-rank bilinear transform against rank, and of LABCLIP.
+**Figure 2.** 2×2 accuracy vs. rank. Solid: objects held out from training. Dashed: training objects. Star: LABCLIP on its training objects.
 
-<p align="center"><img src="assets/fig2_rank_curve.png" width="55%" alt="2x2 accuracy against rank r from 1 to 512. The accuracy on held-out objects rises above the 16.67% chance line and levels off near 33% from r = 16, while the accuracy on training objects keeps rising. LABCLIP, with as many parameters as r = 256, stays below chance even on its training objects."></p>
+<p align="center"><img src="assets/fig2_rank_curve.png" width="55%" alt="Figure 2"></p>
 
-**Table 3.** External benchmarks (%). Both transforms are trained on our BEAF pairs and evaluated zero-shot.
-Ours uses r = 32. Avg includes the mixed (hybrid) items.
+**Table 3.** Accuracy (%) on external benchmarks. Both transforms are trained on our BEAF pairs only. Ours uses r = 32, and Avg includes the mixed (hybrid) items.
 
 | Similarity | COCO Avg | COCO Pos | COCO Neg | VOC2007 Avg | VOC2007 Pos | VOC2007 Neg | CheXpert |
 |:--|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
@@ -86,18 +56,17 @@ Ours uses r = 32. Avg includes the mixed (hybrid) items.
 | LABCLIP | **47.02** | **82.23** | 6.42 | 40.95 | **84.75** | 6.46 | 37.43 |
 | **Ours** | 45.25 | 61.52 | **24.22** | **51.88** | 73.61 | **22.40** | **58.82** |
 
-## Installation
+## Setup
 
 ```bash
 git clone https://github.com/qofo/lowrank-bilinear-negation.git
 cd lowrank-bilinear-negation
-conda create -n lbn python=3.9 -y && conda activate lbn
+conda create -n lbn python=3.9 -y
+conda activate lbn
 pip install -r requirements.txt
 ```
 
-The code uses a vendored, modified OpenCLIP (`benchmarks/src/open_clip`). It is not installed as a package.
-`scripts/reproduce_paper.sh` puts it on `PYTHONPATH`. To run a module by hand, first set the path from the
-repository root:
+We use NegBench's modified copy of OpenCLIP. It lives in `benchmarks/src/open_clip` and is not pip-installed. The scripts below set `PYTHONPATH` for you. If you run a module directly, do this first from the repo root:
 
 ```bash
 export PYTHONPATH="$PWD:$PWD/benchmarks:$PWD/benchmarks/src"
@@ -105,61 +74,42 @@ export PYTHONPATH="$PWD:$PWD/benchmarks:$PWD/benchmarks/src"
 
 ## Data
 
-The CSVs are included in `benchmarks/data/images/`. The images come from their original sources:
+The CSVs are already in the repo (`benchmarks/data/images/`). The images have to come from the original sources:
 
-| Dataset | Used for | Source | Manifest |
-|:--|:--|:--|:--|
-| BEAF v1 (`beaf_dataset_ver1.zip`, 2,224 images) | Tables 1–2, Figures 1–2, training both transforms | [Google Drive (BEAF authors)](https://drive.google.com/file/d/1Xx7j8Hz8QX3Fl_hpSBet6r15njhwCgeR/view) | `beaf.sha256` |
-| COCO 2017 val (`val2017.zip`) | Table 3, COCO MCQ | [cocodataset.org](http://images.cocodataset.org/zips/val2017.zip) | `coco_val2017.sha256` |
-| PASCAL VOC2007 test (`VOCtest_06-Nov-2007.tar`) | Table 3, VOC2007 MCQ | [host.robots.ox.ac.uk](http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCtest_06-Nov-2007.tar) | `voc2007.sha256` |
-| CheXpert-v1.0-small (validation split) | Table 3, CheXpert | [Kaggle mirror used by NegBench](https://www.kaggle.com/datasets/ashery/chexpert); the CheXpert Research Use Agreement applies | `chexpert.sha256` |
+- [BEAF v1](https://drive.google.com/file/d/1Xx7j8Hz8QX3Fl_hpSBet6r15njhwCgeR/view) (`beaf_dataset_ver1.zip`, from the BEAF authors). Needed for everything except Table 3.
+- [COCO 2017 val images](http://images.cocodataset.org/zips/val2017.zip), for Table 3.
+- [PASCAL VOC2007 test set](http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCtest_06-Nov-2007.tar), for Table 3.
+- CheXpert-v1.0-small, validation split, from the [Kaggle mirror NegBench uses](https://www.kaggle.com/datasets/ashery/chexpert), for Table 3. The CheXpert research use agreement applies.
 
-`scripts/prepare_data.sh` puts each archive where the CSVs expect it. It then checks every image the
-CSVs reference against the SHA-256 manifests in `benchmarks/data/checksums/`:
+Then pass whatever you downloaded to `prepare_data.sh`. It unpacks everything where the CSVs expect it and checks each image against the SHA-256 lists in `benchmarks/data/checksums/`:
 
 ```bash
 bash scripts/prepare_data.sh --beaf beaf_dataset_ver1.zip --coco_val2017 val2017.zip \
     --voc2007 VOCtest_06-Nov-2007.tar --chexpert /path/to/CheXpert-v1.0-small
 ```
 
-The BEAF zip alone is enough for everything except Table 3.
-
-**Checkpoints.**
-- The OpenAI CLIP ViT-B/32 weights are downloaded automatically by OpenCLIP.
-- The fine-tuned encoder of Table 1 is NegBench's `CLIP_CC12M_NegFull_ViT-B-32_lr1e-8_clw0.99_mlw0.01`, from
-  the [NegBench model folder](https://drive.google.com/drive/folders/1kSEq0mkV1t1T8GuOAM65iz_iAA7e5gxB). Place
-  it at `benchmarks/models/CLIP_CC12M_NegFull_ViT-B-32_lr1e-8_clw0.99_mlw0.01/checkpoint.pt`
-  (sha256 `23a68e31da76f95670c4167cb2980e52fbd1eba77c8932cc36ade75efadfeb70`).
-- The two trained matrices of Table 3 are in `checkpoints/`: Ours (`delta_warmstart_rank32.pt`) and LABCLIP
-  (`labclip_official_recipe_bilinear.pt`).
+**Checkpoints.** OpenCLIP downloads the OpenAI ViT-B/32 weights by itself. The fine-tuned row of Table 1 needs NegBench's `CLIP_CC12M_NegFull_ViT-B-32_lr1e-8_clw0.99_mlw0.01` from the [NegBench model folder](https://drive.google.com/drive/folders/1kSEq0mkV1t1T8GuOAM65iz_iAA7e5gxB). Put it at `benchmarks/models/CLIP_CC12M_NegFull_ViT-B-32_lr1e-8_clw0.99_mlw0.01/checkpoint.pt` (sha256 `23a68e31da76f95670c4167cb2980e52fbd1eba77c8932cc36ade75efadfeb70`). The two matrices used in Table 3 are in `checkpoints/`: ours (`delta_warmstart_rank32.pt`) and LABCLIP (`labclip_official_recipe_bilinear.pt`).
 
 ## Reproducing the paper
 
 ```bash
-bash scripts/reproduce_paper.sh all      # or name stages, e.g. table2 figure2 compare
+bash scripts/reproduce_paper.sh all
 ```
 
-Every stage recomputes its embeddings from the images and writes to `outputs/paper/` (set `OUT` to change it).
-The last stage, `compare`, writes `outputs/paper/compare_with_paper.csv`. It puts each number printed in the
-paper next to the reference log it came from (`results/reference/`) and the value just reproduced.
+You can also run single stages (`table1_openai`, `table2`, `figure2`, `ours`, `labclip`, `star`, `table3`, ...). The full list is at the top of the script. Outputs go to `outputs/paper/`. The last stage, `compare`, writes `compare_with_paper.csv`, which puts every number printed in the paper next to the original log (`results/reference/`) and the value from your run.
 
-On one RTX 4070 the full run takes about 90 minutes, 70 of them for the three Table 1 probes. Run from a fresh
-environment, it reproduces all 61 numbers printed in the paper and both trained matrices bit for bit. The one
-exception is the random-initialisation row of Table 1. The original run did not seed the random encoder, so its
-value moves in the third decimal (0.5246 / 0.5441 against 0.5230 / 0.5354) but still rounds to the printed
-0.52 / 0.54. The script now seeds it, so repeated runs agree.
+The full run takes about 90 minutes on one RTX 4070, most of it in the three Table 1 probes. When we reran it from a fresh environment, all 61 printed numbers came out the same and both trained matrices matched bit for bit. The random-init row of Table 1 moves slightly (0.5246 / 0.5441 vs. 0.5230 / 0.5354) because the original run did not seed the random encoder. It still rounds to 0.52 / 0.54, and the script now fixes the seed.
 
-| Paper item | Stage | Population | Script |
-|:--|:--|:--|:--|
-| Table 1 | `table1_openai`, `table1_random`, `table1_negft` | image: 76 objects, original vs. object-removed image pairs (GroupKFold over pairs); text: 69 objects, word-swapped captions (StratifiedKFold) | `eval_probe_failure_inspector.py` |
-| Sec. 2.2 (1.35%), Table 2 | `table2` | 33 objects, 1,357 original vs. object-removed pairs; held-out columns use GroupKFold over source images | `eval_per_object_alignment_intervention.py` |
-| Figure 2 (curve) | `figure2` | 42 objects, 2,480 pairs (each object removed from one image, another object from the other); GroupKFold over objects | `eval_single_w_generalization.py` |
-| Figure 2 (LABCLIP star) | `labclip`, `star` | LABCLIP trained on all 2,771 pairs (77 objects), scored on the 42 objects | `train_labclip_official_recipe.py`, `score_delta_s_for_w.py` |
-| Table 3 (Ours) | `ours` | rank-32 W trained on all 42 objects / 2,480 pairs | `train_and_save_narrow_rank32_w.py` |
-| Table 3 | `table3` | COCO MCQ 5,914 items, VOC2007 MCQ 5,031, CheXpert 187 | `eval_w_ckpts_mcq.py` |
-| Figures 1–2 | `figure1_plot`, `figure2_plot` | pizza/cup pair of Figure 1 | `paper_figures/` |
+The experiments do not all use the same pairs:
 
-To score the released matrices on the external benchmarks without training anything:
+| Paper item | Stage | Pairs |
+|:--|:--|:--|
+| Table 1 | `table1_*` | Image probes: 76 objects, original vs. object-removed image (GroupKFold over pairs). Text probes: 69 objects, word-swapped captions (StratifiedKFold). |
+| Sec. 2.2 (1.35%), Table 2 | `table2` | 33 objects, 1,357 original vs. object-removed pairs |
+| Figure 2, Table 3 (ours) | `figure2`, `ours` | 42 objects, 2,480 pairs, each photo with O removed in one copy and another object in the other |
+| LABCLIP | `labclip`, `star` | All 2,771 such pairs (77 objects) |
+
+To score only the released matrices on Table 3, without training anything:
 
 ```bash
 python -m benchmarks.src.evaluation.eval_w_ckpts_mcq \
@@ -170,26 +120,19 @@ python -m benchmarks.src.evaluation.eval_w_ckpts_mcq \
     --output outputs/table3_released.json
 ```
 
-Tests: `python -m pytest benchmarks/tests` (about one minute, no images needed).
+Tests run in about a minute and need no images: `python -m pytest benchmarks/tests`.
 
-## Repository structure
+## Repository layout
 
 ```
-benchmarks/
-  src/
-    open_clip/          vendored OpenCLIP (modified by NegBench)
-    analysis/           feature extraction, feature cache, shared config and CLI helpers
-    evaluation/         every experiment of the paper (entry points listed above)
-    training/           CsvMCQDataset for the MCQ benchmarks
-    data_generation/    builds the word-swapped caption pairs from BEAF
-  data/images/          CSVs (captions + relative image paths)
-  data/checksums/       SHA-256 manifests of every image the CSVs use
-  tests/                invariants the results rest on (e.g. the ΔS identity, fold grouping, tie handling)
-checkpoints/            trained W of Ours (rank 32) and of LABCLIP
-concept_sets/           the 33-object set of Table 2
-paper_figures/          Figure 1 and Figure 2
-results/reference/      the original outputs every paper number was read from
-scripts/                prepare_data.sh, reproduce_paper.sh
+benchmarks/src/open_clip/        OpenCLIP, as modified by NegBench
+benchmarks/src/analysis/         feature extraction and shared helpers
+benchmarks/src/evaluation/       the experiments
+benchmarks/src/data_generation/  builds the word-swapped caption pairs from BEAF
+benchmarks/data/                 CSVs and image checksums
+checkpoints/                     trained W for ours (rank 32) and LABCLIP
+results/reference/               original outputs behind every number in the paper
+scripts/                         prepare_data.sh, reproduce_paper.sh
 ```
 
 ## Citation
@@ -205,17 +148,10 @@ scripts/                prepare_data.sh, reproduce_paper.sh
 
 ## Acknowledgements
 
-This code builds on [NegBench](https://github.com/m1k2zoo/negbench), which provides the code base, the MCQ
-benchmarks and the fine-tuned encoder, and on [OpenCLIP](https://github.com/mlfoundations/open_clip). The
-controlled image pairs come from [BEAF](https://github.com/postech-ami/BEAF). The LABCLIP baseline follows the
-official recipe of [CLIP-not-BoW-unimodally](https://github.com/kdariina/CLIP-not-BoW-unimodally).
+This code builds on [NegBench](https://github.com/m1k2zoo/negbench), which gave us the code base, the MCQ benchmarks and the fine-tuned encoder, and on [OpenCLIP](https://github.com/mlfoundations/open_clip). The image pairs come from [BEAF](https://github.com/postech-ami/BEAF). Our LABCLIP baseline follows the official code of [CLIP-not-BoW-unimodally](https://github.com/kdariina/CLIP-not-BoW-unimodally).
 
-This research was supported by the MSIT(Ministry of Science, ICT), Korea, under the National Program for
-Excellence in SW(2022-0-01077) supervised by the IITP(Institute of Information & communications Technology
-Planning & Evaluation) in 2026.
+This research was supported by the MSIT(Ministry of Science, ICT), Korea, under the National Program for Excellence in SW(2022-0-01077) supervised by the IITP(Institute of Information & communications Technology Planning & Evaluation) in 2026.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The vendored OpenCLIP keeps its own license
-(`benchmarks/src/open_clip/LICENSE_OPENCLIP`). The images belong to their respective datasets and are not
-redistributed here.
+MIT, see [LICENSE](LICENSE). The bundled OpenCLIP code keeps its own license (`benchmarks/src/open_clip/LICENSE_OPENCLIP`). The images are not redistributed here; they belong to their respective datasets.
