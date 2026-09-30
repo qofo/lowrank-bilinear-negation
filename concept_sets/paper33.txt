@@ -1,0 +1,33 @@
+backpack
+bench
+bicycle
+book
+bottle
+bowl
+bus
+car
+cat
+cell phone
+chair
+clock
+couch
+cup
+dining table
+dog
+fork
+handbag
+knife
+laptop
+motorcycle
+person
+pizza
+potted plant
+remote
+spoon
+sports ball
+tie
+traffic light
+truck
+tv
+umbrella
+vase

@@ -1,0 +1,13 @@
+# images, checkpoints and run outputs are downloaded or produced locally (see README)
+benchmarks/data/coco
+benchmarks/data/voc2007
+benchmarks/data/CheXpert-v1.0-small
+benchmarks/models
+outputs/
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.DS_Store
+logs/

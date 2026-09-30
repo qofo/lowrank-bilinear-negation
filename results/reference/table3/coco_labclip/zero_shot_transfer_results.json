@@ -1,0 +1,18 @@
+{
+  "Baseline Cosine": {
+    "total_accuracy": 39.29658437605681,
+    "positive_accuracy": 69.14370078740157,
+    "negative_accuracy": 6.8449197860962565,
+    "hybrid_accuracy": 39.314115308151095,
+    "total_samples": 5914,
+    "tie_rate_pct": 0.0
+  },
+  "Pretrained_bilinear": {
+    "total_accuracy": 47.02401082177883,
+    "positive_accuracy": 82.23425196850394,
+    "negative_accuracy": 6.417112299465241,
+    "hybrid_accuracy": 49.20477137176938,
+    "total_samples": 5914,
+    "tie_rate_pct": 0.0
+  }
+}

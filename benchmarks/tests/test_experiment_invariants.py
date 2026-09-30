@@ -1,0 +1,1228 @@
+"""
+Regression tests for the experiment-level invariants that carry meaning.
+
+Each of these locks in a defect that had already reached the reported numbers or
+would have crashed a run: the Hadamard identity the E2 result rests on, the
+eval-time image transform, the fold splitters, and the counterfactual pairing
+contract.
+"""
+
+import pathlib
+
+import numpy as np
+import pandas as pd
+import pytest
+
+# `make test` runs pytest from benchmarks/, other invocations from the repo root.
+# Resolve the tree to scan from this file instead, so cwd cannot silently empty it.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+SRC_ROOT = REPO_ROOT / "benchmarks" / "src"
+
+from analysis.beaf.vision_mechanisms import _group_kfold
+from benchmarks.src.evaluation.eval_e2_hadamard_decomposition import compute_hadamard_coordinates
+
+
+class TestHadamardIdentity:
+    """Delta(S) = 2*gamma - 2*max(|alpha|,|beta|) is an identity, not an approximation."""
+
+    def test_identity_holds_on_random_similarities(self):
+        rng = np.random.default_rng(42)
+        s = rng.normal(size=(4, 5000)) * 0.3
+        out = compute_hadamard_coordinates(*s)
+        assert float(np.max(out["verification_error"])) < 1e-12
+
+    def test_reconstruction_from_coordinates(self):
+        rng = np.random.default_rng(0)
+        S11, S12, S21, S22 = rng.normal(size=(4, 200)) * 0.2
+        c = compute_hadamard_coordinates(S11, S12, S21, S22)
+        # S_ab = C + a*beta + b*alpha + a*b*gamma with (a,b) = (image, text) in {+1,-1}
+        assert np.allclose(c["C"] + c["beta"] + c["alpha"] + c["gamma"], S11)
+        assert np.allclose(c["C"] - c["beta"] + c["alpha"] - c["gamma"], S12)
+        assert np.allclose(c["C"] + c["beta"] - c["alpha"] - c["gamma"], S21)
+        assert np.allclose(c["C"] - c["beta"] - c["alpha"] + c["gamma"], S22)
+
+    def test_joint_correct_iff_gamma_dominates(self):
+        rng = np.random.default_rng(7)
+        c = compute_hadamard_coordinates(*(rng.normal(size=(4, 3000)) * 0.3))
+        dominates = c["gamma"] > np.maximum(c["abs_alpha"], c["abs_beta"])
+        assert np.array_equal(c["joint_correct"], dominates)
+
+
+class TestGroupKFoldGuard:
+    """`min(5, n_groups)` silently produced n_splits=1 for a single-group slice."""
+
+    def test_split_count_tracks_group_count(self):
+        assert _group_kfold(np.array(["a", "a", "b", "b"])).get_n_splits() == 2
+        assert _group_kfold(np.array(list("abcdefg"))).get_n_splits() == 5
+
+    def test_single_group_raises_a_message_about_groups(self):
+        with pytest.raises(ValueError, match="at least 2 distinct groups"):
+            _group_kfold(np.array(["a", "a", "a"]))
+
+
+class TestEvalTimeImageTransform:
+    """Feature extraction must use the val transform; the train one is stochastic."""
+
+    def test_val_transform_is_deterministic_and_train_is_not(self):
+        import torch
+        from PIL import Image
+        import open_clip
+
+        _, pp_train, pp_val = open_clip.create_model_and_transforms("ViT-B-32", pretrained=None)
+        img = Image.fromarray(
+            np.random.default_rng(0).integers(0, 255, (480, 640, 3), dtype=np.uint8)
+        )
+        assert torch.equal(pp_val(img), pp_val(img)), "val transform must be deterministic"
+        # Two RandomResizedCrop draws can land on the same integer crop box, so a
+        # single pair is a flaky test. Several draws differing at all is the claim.
+        draws = [pp_train(img) for _ in range(8)]
+        assert any(not torch.equal(draws[0], d) for d in draws[1:]), (
+            "train transform is expected to be stochastic -- that is why extraction must not use it"
+        )
+
+
+class TestCounterfactualPairingContract:
+    """BEAF rows come in consecutive pairs; the E-series relies on that ordering."""
+
+    CSV = "benchmarks/data/images/beaf_counterfactual_6col.csv"
+
+    @pytest.fixture
+    def df(self):
+        import os
+        # Resolve against the repo root so the test runs from either the root or
+        # benchmarks/ (which is where `make test` invokes pytest from).
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        path = os.path.join(repo_root, self.CSV)
+        if not os.path.exists(path):
+            pytest.skip(f"{self.CSV} not present")
+        return pd.read_csv(path)
+
+    def test_consecutive_rows_form_valid_pairs(self, df):
+        assert len(df) % 2 == 0
+        a, b = df.iloc[0::2].reset_index(drop=True), df.iloc[1::2].reset_index(drop=True)
+        assert (a["object_name"] == b["object_name"]).all()
+        assert (a["source_template"] == b["source_template"]).all()
+        assert (a["object_in_image"].astype(bool) != b["object_in_image"].astype(bool)).all()
+
+    def test_positional_regrouping_recovers_the_same_pairs(self, df):
+        """The E-series re-pairs by position within an object instead of using the loader."""
+        for obj, g in df.groupby("object_name"):
+            present = g[g["object_in_image"].astype(bool)].reset_index(drop=True)
+            absent = g[~g["object_in_image"].astype(bool)].reset_index(drop=True)
+            n = min(len(present), len(absent))
+            assert (
+                present["source_template"][:n].values == absent["source_template"][:n].values
+            ).all(), f"positional pairing crosses templates for {obj!r}"
+
+
+class TestTieAwarePrediction:
+    """A tie at the maximum must not be resolved to option 0.
+
+    Every row of the NegBench MCQ CSVs carries ``correct_answer = 0`` -- the options
+    are never shuffled -- so ``torch.argmax``'s lowest-index tie-break scores a
+    scorer that ranks nothing at exactly 100%. Zeroing the image embedding does
+    exactly that to the three image-linear heads, which is where the reported
+    "zero vision = 100.00%" came from.
+    """
+
+    def test_all_tied_row_is_flagged_and_not_forced_to_zero(self):
+        import torch
+        from benchmarks.src.evaluation.scoring_heads import predict_with_tie_report
+
+        scores = torch.zeros(400, 4)
+        preds, ties = predict_with_tie_report(scores, seed=0)
+        assert ties.all(), "an all-equal row must be reported as a tie"
+        assert len(set(preds.tolist())) > 1, "ties must not all collapse onto option 0"
+        assert (preds == 0).mean() < 0.5, "tie-breaking must not be biased toward index 0"
+
+    def test_unique_maximum_is_untouched(self):
+        import torch
+        from benchmarks.src.evaluation.scoring_heads import predict_with_tie_report
+
+        scores = torch.tensor([[0.1, 0.9, 0.2, 0.3], [0.7, 0.1, 0.2, 0.0]])
+        preds, ties = predict_with_tie_report(scores, seed=0)
+        assert list(preds) == [1, 0]
+        assert not ties.any()
+
+    def test_same_seed_gives_the_same_tie_break(self):
+        import torch
+        from benchmarks.src.evaluation.scoring_heads import predict_with_tie_report
+
+        scores = torch.zeros(50, 4)
+        a, _ = predict_with_tie_report(scores, seed=7)
+        b, _ = predict_with_tie_report(scores, seed=7)
+        assert np.array_equal(a, b)
+
+    @pytest.mark.parametrize("head", ["cosine", "weighted_cosine", "bilinear"])
+    def test_zeroed_vision_reads_as_chance_not_perfect(self, head):
+        """The regression itself: these three heads tie on every row without an image."""
+        import torch
+        from benchmarks.src.evaluation.scoring_heads import build_scorer, predict_with_tie_report
+
+        torch.manual_seed(0)
+        n, k, d = 400, 4, 32
+        imgs = torch.zeros(n, d)
+        texts = torch.randn(n, k, d)
+        targets = np.zeros(n, dtype=int)  # NegBench MCQ: the answer is always option 0
+
+        with torch.no_grad():
+            scores = build_scorer(head, d).eval()(imgs, texts)
+
+        preds, ties = predict_with_tie_report(scores, seed=0)
+        assert ties.mean() == 1.0, f"{head} should tie on every row when the image is zeroed"
+        acc = float((preds == targets).mean())
+        assert acc < 0.5, f"{head} scored {acc:.0%} on pure ties; the old argmax gave 100%"
+
+
+class TestAlignmentInterventionDeterminism:
+    """
+    The alignment-intervention script trains three matchers per concept. Two start
+    from ``torch.eye`` and are deterministic on their own, but the low-rank head
+    draws ``proj_v``/``proj_t`` from torch's global RNG (``nn.init.normal_``). The
+    script never called ``set_seed``, so that one condition produced a different
+    matrix -- and a different accuracy -- on every run, while its summary JSON
+    recorded a ``seed`` that controlled none of it.
+    """
+
+    @staticmethod
+    def _quad(seed=0, n=24, d=64):
+        import torch
+        rng = np.random.RandomState(seed)
+        mk = lambda: torch.tensor(rng.randn(n, d) / np.sqrt(d), dtype=torch.float32)
+        return mk(), mk(), mk(), mk()
+
+    def test_lowrank_matcher_is_seed_dependent(self):
+        """Without seeding, the low-rank condition is genuinely non-reproducible."""
+        import torch
+        from benchmarks.src.evaluation.eval_per_object_alignment_intervention import (
+            train_lowrank_bilinear_matcher,
+        )
+
+        quad = self._quad()
+        torch.seed()
+        w1 = train_lowrank_bilinear_matcher(*quad, rank=8, epochs=20)
+        torch.seed()
+        w2 = train_lowrank_bilinear_matcher(*quad, rank=8, epochs=20)
+        assert not np.allclose(w1, w2), (
+            "expected the unseeded low-rank matcher to differ between runs; if this "
+            "now passes, the init changed and the set_seed guarantee needs rechecking"
+        )
+
+    def test_set_seed_makes_every_condition_reproducible(self):
+        """With set_seed, all three trained conditions repeat exactly."""
+        from analysis.config import set_seed
+        from benchmarks.src.evaluation.eval_per_object_alignment_intervention import (
+            train_lowrank_bilinear_matcher, train_bilinear_matcher, train_labclip_matcher,
+        )
+
+        quad = self._quad()
+        for train, kw in ((train_lowrank_bilinear_matcher, dict(rank=8, epochs=20)),
+                          (train_bilinear_matcher, dict(epochs=20)),
+                          (train_labclip_matcher, dict(epochs=20))):
+            set_seed(42)
+            a = train(*quad, **kw)
+            set_seed(42)
+            b = train(*quad, **kw)
+            assert np.array_equal(a, b), f"{train.__name__} is not reproducible under set_seed"
+
+    def test_default_run_stays_in_sample_and_says_so(self):
+        """
+        The default path is still in-sample -- held-out scoring is opt-in behind
+        ``--oof`` because it costs ~5x the runtime. Both facts have to keep reaching
+        the reader, so the summary must carry the protocol note either way.
+        """
+        import inspect
+        from benchmarks.src.evaluation import eval_per_object_alignment_intervention as mod
+
+        run_src = inspect.getsource(mod.run_per_object_alignment_intervention)
+        assert "evaluation_protocol" in run_src, "the in-sample caveat must stay in provenance"
+        assert "oof: bool = False" in inspect.getsource(mod.run_per_object_alignment_intervention), \
+            "held-out scoring must stay opt-in; flipping the default silently changes every number"
+        assert "GroupKFold" in inspect.getsource(mod.evaluate_conditions_out_of_fold), (
+            "the OOF path must group folds, not split rows at random"
+        )
+
+
+class TestAlignmentInterventionOutOfFold:
+    """
+    The alignment-intervention script scores in-sample by default. ``--oof`` adds a
+    held-out column, grouped on the base image so two counterfactual pairs cut from
+    one photo cannot straddle a split. Conditions 1 (identity) and 7 (a random
+    rotation drawn from a fixed seed) fit nothing, so their held-out accuracy must
+    equal their in-sample accuracy exactly -- that equality is what proves the
+    harness routes scores to the right rows.
+    """
+
+    @staticmethod
+    def _concept(n=40, d=48, seed=0):
+        rng = np.random.RandomState(seed)
+        unit = lambda x: x / np.linalg.norm(x, axis=-1, keepdims=True)
+        dv, dt = unit(rng.randn(d)), unit(rng.randn(d))
+        base_v, base_t = rng.randn(n, d), rng.randn(n, d)
+        v_p, v_m = unit(base_v + dv), unit(base_v - dv)
+        t_p, t_m = unit(base_t + dt), unit(base_t - dt)
+        groups = np.repeat(np.arange(n // 2), 2)  # two pairs share each base scene
+        return v_p, v_m, t_p, t_m, groups
+
+    def test_parameter_free_conditions_match_in_sample(self):
+        from benchmarks.src.evaluation.eval_per_object_alignment_intervention import (
+            build_condition_matrices, evaluate_condition_scoring,
+            evaluate_conditions_out_of_fold,
+        )
+
+        v_p, v_m, t_p, t_m, groups = self._concept()
+        d = v_p.shape[1]
+        d_I = np.ones(d) / np.sqrt(d)
+        d_T = np.ones(d) / np.sqrt(d)
+
+        oof, n_folds = evaluate_conditions_out_of_fold(
+            v_p, v_m, t_p, t_m, groups, rank=4, embed_dim=d, seed=42, use_bias=True)
+        assert n_folds == 5
+
+        mats = build_condition_matrices(v_p, v_m, t_p, t_m, d_I, d_T,
+                                        rank=4, embed_dim=d, seed=42)
+        for cond in ("1_Baseline_Cosine", "7_Control_Random_Rotation"):
+            A, is_lab = mats[cond]
+            in_sample = evaluate_condition_scoring(v_p, v_m, t_p, t_m, A, d_I, d_T, is_lab)
+            assert in_sample["acc_joint_pct"] == pytest.approx(oof[cond]["acc_joint_pct"]), (
+                f"{cond} fits nothing, so held-out scoring must reproduce it exactly"
+            )
+
+    def test_base_scene_never_straddles_a_fold(self):
+        """The grouping contract: no base image appears in both halves of a split."""
+        from sklearn.model_selection import GroupKFold
+
+        _, _, _, _, groups = self._concept()
+        for tr, te in GroupKFold(n_splits=5).split(np.arange(len(groups)), groups=groups):
+            assert not (set(groups[tr]) & set(groups[te])), "a base scene leaked across the split"
+
+    def test_free_matrix_scores_lower_out_of_fold(self):
+        """
+        A 512x512-shaped free matrix fitted on noise should collapse out of fold.
+        This is the defect the OOF column exists to expose.
+        """
+        from benchmarks.src.evaluation.eval_per_object_alignment_intervention import (
+            build_condition_matrices, evaluate_condition_scoring,
+            evaluate_conditions_out_of_fold,
+        )
+
+        rng = np.random.RandomState(1)
+        n, d = 40, 48
+        unit = lambda x: x / np.linalg.norm(x, axis=-1, keepdims=True)
+        v_p, v_m, t_p, t_m = (unit(rng.randn(n, d)) for _ in range(4))  # pure noise
+        groups = np.repeat(np.arange(n // 2), 2)
+        d_I = d_T = np.ones(d) / np.sqrt(d)
+
+        cond = "6_Learned_Full_Bilinear"
+        A, is_lab = build_condition_matrices(v_p, v_m, t_p, t_m, d_I, d_T,
+                                             rank=4, embed_dim=d, seed=42)[cond]
+        fit = evaluate_condition_scoring(v_p, v_m, t_p, t_m, A, d_I, d_T, is_lab)["acc_joint_pct"]
+        oof, _ = evaluate_conditions_out_of_fold(
+            v_p, v_m, t_p, t_m, groups, rank=4, embed_dim=d, seed=42, use_bias=True)
+
+        assert fit > oof[cond]["acc_joint_pct"], (
+            f"on label-free noise the free matrix scored {fit:.1f}% in-sample and "
+            f"{oof[cond]['acc_joint_pct']:.1f}% out of fold; the in-sample number "
+            "should be the inflated one"
+        )
+
+
+class TestRotationZeroMainEffectConditions:
+    """
+    Conditions 8-11 test the "alignment + gap orthogonalisation" row of the additive
+    model: rotate the text so cos(d_I, R d_T) = 1, then project one main effect out.
+    Conditions 9 and 11 are the same projections without the rotation -- the controls
+    that make a gain attributable to the combination rather than to the ablation alone.
+
+    The alpha and beta ablations have to be exact *and* independent: the success
+    condition gamma > max(|alpha|,|beta|) is decided by whichever main effect is
+    larger, so an ablation that leaked into the other coefficient would silently
+    change which condition wins.
+    """
+
+    @staticmethod
+    def _quads(n=40, d=32, seed=3):
+        rng = np.random.RandomState(seed)
+        unit = lambda x: x / np.linalg.norm(x, axis=-1, keepdims=True)
+        dv, dt = unit(rng.randn(d)), unit(rng.randn(d))
+        bv, bt = rng.randn(n, d), rng.randn(n, d)
+        return (unit(bv + 0.3 * dv), unit(bv - 0.3 * dv),
+                unit(bt + 0.3 * dt), unit(bt - 0.3 * dt), unit(dv), unit(dt))
+
+    def test_hadamard_reconstruction_is_exact(self):
+        """
+        Conditions 8 and 9 recover scores from Hadamard coordinates. The transform is
+        its own inverse up to a factor of 4; if that ever stops holding, both
+        conditions silently report the wrong numbers.
+        """
+        from benchmarks.src.evaluation.eval_e2_hadamard_decomposition import (
+            compute_hadamard_coordinates,
+        )
+
+        rng = np.random.RandomState(0)
+        S11, S12, S21, S22 = (rng.randn(50) for _ in range(4))
+        h = compute_hadamard_coordinates(S11, S12, S21, S22)
+        C, a, b, g = h["C"], h["alpha"], h["beta"], h["gamma"]
+
+        assert np.allclose(C + b + a + g, S11)
+        assert np.allclose(C - b + a - g, S12)
+        assert np.allclose(C + b - a - g, S21)
+        assert np.allclose(C - b - a + g, S22)
+
+    @pytest.mark.parametrize("rotate", [True, False])
+    @pytest.mark.parametrize("ablate,zeroed,kept", [
+        ("perobj_alpha", "abs_alpha_mean", "abs_beta_mean"),
+        ("perobj_beta", "abs_beta_mean", "abs_alpha_mean"),
+    ])
+    def test_the_targeted_main_effect_is_removed_and_the_other_survives(
+        self, rotate, ablate, zeroed, kept
+    ):
+        """
+        Each condition exists to zero exactly one main effect. If the projection also
+        moved the other one, the alpha/beta comparison these conditions are run for
+        would be measuring two changes at once.
+        """
+        from benchmarks.src.evaluation.eval_per_object_alignment_intervention import (
+            rotation_zero_main_effect_scores, metrics_from_quad_scores,
+        )
+
+        v_p, v_m, t_p, t_m, d_I, d_T = self._quads()
+        scores, align = rotation_zero_main_effect_scores(
+            v_p, v_m, t_p, t_m, d_I, d_T, rotate=rotate, ablate=ablate)
+        m = metrics_from_quad_scores(*scores, align)
+
+        assert m[zeroed] < 1e-9, (
+            f"{ablate} left {zeroed} at {m[zeroed]:.3e}; the "
+            "intervention's whole claim is that it does not"
+        )
+        assert m[kept] > 1e-6, (
+            f"{ablate} also collapsed {kept} to {m[kept]:.3e}; the two ablations have "
+            "to be independent or the comparison between them means nothing"
+        )
+
+    def test_rotation_reaches_perfect_alignment_and_the_control_does_not(self):
+        from benchmarks.src.evaluation.eval_per_object_alignment_intervention import (
+            rotation_zero_main_effect_scores,
+        )
+
+        v_p, v_m, t_p, t_m, d_I, d_T = self._quads()
+        _, rotated = rotation_zero_main_effect_scores(v_p, v_m, t_p, t_m, d_I, d_T, rotate=True)
+        _, control = rotation_zero_main_effect_scores(v_p, v_m, t_p, t_m, d_I, d_T, rotate=False)
+
+        assert rotated == pytest.approx(1.0, abs=1e-6), "R is built so that R d_T = d_I"
+        assert control == pytest.approx(float(np.dot(d_I, d_T)), abs=1e-6), (
+            "the control applies no rotation, so alignment must stay at the raw value"
+        )
+
+    def test_conditions_8_to_11_survive_the_oof_harness(self):
+        """All four are closed-form given the probe normals, so must be OOF-scorable."""
+        from benchmarks.src.evaluation.eval_per_object_alignment_intervention import (
+            evaluate_conditions_out_of_fold, CONDITION_NAMES,
+        )
+
+        v_p, v_m, t_p, t_m, _, _ = self._quads()
+        groups = np.repeat(np.arange(len(v_p) // 2), 2)
+        oof, _ = evaluate_conditions_out_of_fold(
+            v_p, v_m, t_p, t_m, groups, rank=4, embed_dim=v_p.shape[1],
+            seed=42, use_bias=True)
+
+        assert set(oof) == set(CONDITION_NAMES), "every condition must reach the OOF column"
+        for cond in ("8_Rotation_Zero_Alpha", "9_Zero_Alpha_Only"):
+            assert oof[cond]["abs_alpha_mean"] < 1e-9, f"{cond} must zero alpha out of fold too"
+        for cond in ("10_Rotation_Zero_Beta", "11_Zero_Beta_Only"):
+            assert oof[cond]["abs_beta_mean"] < 1e-9, f"{cond} must zero beta out of fold too"
+
+
+class TestUpstreamArtifactResolution:
+    """
+    Several experiments read another experiment's output through a default path
+    under logs/, which is gitignored -- so a fresh clone has none of them. The
+    three call sites used to handle that three different ways: a clear error, a
+    raw pandas traceback, and a silent skip that dropped a cross-check from the
+    report with nothing recording the omission.
+    """
+
+    def test_missing_required_artifact_names_the_producing_command(self, tmp_path):
+        from analysis.feature_cache import resolve_upstream_artifact
+
+        with pytest.raises(FileNotFoundError) as e:
+            resolve_upstream_artifact(str(tmp_path / "absent.csv"),
+                                      produced_by="python -m some.producer")
+        msg = str(e.value)
+        assert "python -m some.producer" in msg, "the error must say how to produce the file"
+        assert "gitignored" in msg, "and why a fresh clone lacks it"
+
+    def test_optional_artifact_returns_none_instead_of_raising(self, tmp_path, capsys):
+        from analysis.feature_cache import resolve_upstream_artifact
+
+        got = resolve_upstream_artifact(str(tmp_path / "absent.csv"),
+                                        produced_by="python -m some.producer",
+                                        required=False)
+        assert got is None
+        assert "skipped" in capsys.readouterr().out, "an optional skip must still be visible"
+
+    def test_existing_artifact_passes_through(self, tmp_path):
+        from analysis.feature_cache import resolve_upstream_artifact
+
+        p = tmp_path / "present.csv"
+        p.write_text("a,b\n1,2\n")
+        assert resolve_upstream_artifact(str(p), produced_by="x") == str(p)
+
+    def test_hadamard_summary_records_whether_the_e1_check_ran(self):
+        """
+        The silent-skip case: the summary has to distinguish a report whose E1
+        cross-check ran from one where the CSV was simply absent.
+        """
+        import inspect
+        from benchmarks.src.evaluation import eval_e2_hadamard_decomposition as mod
+
+        src = inspect.getsource(mod)
+        assert '"e1_cross_check"' in src, "the summary must record whether the E1 check ran"
+        assert "SKIPPED" in src, "and say so explicitly when it did not"
+
+
+class TestProbeRegistry:
+    """
+    A probe used to be declared in three places that had to agree by hand: the
+    SUPPORTED_PROBES name list, an elif chain for its hyperparameter grid, and
+    another for its constructor. Nothing checked the agreement, so a probe added
+    to two of the three would raise "Unsupported probe_type" from the one that was
+    missed -- or silently get tuned against another probe's grid.
+    """
+
+    def test_name_list_is_derived_from_the_registry(self):
+        from analysis.beaf.probe_factory import SUPPORTED_PROBES, PROBE_REGISTRY
+
+        assert SUPPORTED_PROBES == list(PROBE_REGISTRY), (
+            "SUPPORTED_PROBES must be derived from PROBE_REGISTRY, not maintained beside it"
+        )
+
+    def test_every_registered_probe_has_a_grid_and_builds(self):
+        from analysis.beaf.probe_factory import (
+            SUPPORTED_PROBES, get_param_candidates, create_probe_classifier,
+        )
+
+        for name in SUPPORTED_PROBES:
+            grid = get_param_candidates(name)
+            assert grid, f"{name} has an empty hyperparameter grid"
+            for params in (grid[0], grid[-1]):
+                assert create_probe_classifier(name, seed=42, **params) is not None
+
+    def test_unknown_probe_fails_the_same_way_from_both_entry_points(self):
+        from analysis.beaf.probe_factory import get_param_candidates, create_probe_classifier
+
+        for fn in (get_param_candidates, create_probe_classifier):
+            with pytest.raises(ValueError, match="Unsupported probe_type"):
+                fn("no_such_probe")
+
+    def test_no_bias_reaches_the_probes_that_can_honor_it(self):
+        """`--no_bias` is a claim about the fitted model, so it has to land."""
+        from analysis.beaf.probe_factory import create_probe_classifier
+
+        for name in ("logistic", "ridge", "sgd_log", "sgd_hinge"):
+            clf = create_probe_classifier(name, seed=42, fit_intercept=False)
+            assert clf.get_params()["fit_intercept"] is False, f"{name} ignored fit_intercept"
+
+    def test_svm_probes_warn_that_they_cannot_honor_no_bias(self, capsys):
+        """sklearn's SVC has no fit_intercept; reporting a 'no-bias' SVM number would lie."""
+        import analysis.beaf.probe_factory as pf
+
+        pf._NO_BIAS_WARNED.discard("svm_rbf")
+        pf.create_probe_classifier("svm_rbf", seed=42, fit_intercept=False)
+        assert "NOT applied" in capsys.readouterr().out
+
+
+class TestPyTorchProbeSklearnContract:
+    """
+    PyTorchProbeEstimator set ``classes_`` to [0, 1] in ``__init__``. In the
+    sklearn contract ``classes_`` is a fitted attribute read from the data, and
+    hardcoding it meant any other label pair was cast straight into BCE while
+    predict() still returned 0/1 -- scoring 0% on perfectly separable data with
+    nothing raised. Every experiment here happens to use {0, 1}, so the bug was
+    invisible until a probe was reused on differently-labelled data.
+    """
+
+    @staticmethod
+    def _separable(seed=0, n=40, d=8):
+        rng = np.random.RandomState(seed)
+        X = np.vstack([rng.randn(n, d) + 1.5, rng.randn(n, d) - 1.5])
+        return X, np.array([1] * n + [0] * n)
+
+    @pytest.mark.parametrize("labels", [(0, 1), (2, 5), ("neg", "pos")])
+    def test_any_binary_label_pair_scores_correctly(self, labels):
+        from analysis.beaf.probe_factory import create_probe_classifier
+
+        X, y01 = self._separable()
+        y = np.where(y01 == 1, labels[1], labels[0])
+        clf = create_probe_classifier("mlp", seed=42, epochs=60)
+        clf.fit(X, y)
+
+        assert clf.score(X, y) > 0.9, (
+            f"labels {labels} scored {clf.score(X, y):.0%} on separable data"
+        )
+        assert set(np.unique(clf.predict(X))) <= set(labels), "predict must return the caller's labels"
+        assert list(clf.classes_) == sorted(labels, key=str)
+
+    def test_classes_is_not_set_before_fit(self):
+        from analysis.beaf.probe_factory import create_probe_classifier
+
+        clf = create_probe_classifier("mlp", seed=42)
+        assert not hasattr(clf, "classes_"), "classes_ is a fitted attribute, not a constructor one"
+
+    def test_predict_before_fit_raises_instead_of_crashing_on_none(self):
+        from analysis.beaf.probe_factory import create_probe_classifier
+
+        X, _ = self._separable()
+        with pytest.raises(ValueError, match="not fitted"):
+            create_probe_classifier("mlp", seed=42).predict(X)
+
+    def test_non_binary_target_is_rejected(self):
+        from analysis.beaf.probe_factory import create_probe_classifier
+
+        rng = np.random.RandomState(0)
+        X = rng.randn(60, 8)
+        y = np.array([0] * 20 + [1] * 20 + [2] * 20)
+        with pytest.raises(ValueError, match="binary probe"):
+            create_probe_classifier("mlp", seed=42, epochs=5).fit(X, y)
+
+
+class TestSharedModelLoader:
+    """
+    ``create_model_and_transforms`` returns (model, preprocess_train,
+    preprocess_val). The train transform is a stochastic RandomResizedCrop, so an
+    entrypoint that grabs the wrong element makes every embedding a different
+    sample of the same image. Four entrypoints once did exactly that, and the rest
+    each repeated the same three-line incantation by hand. load_clip_for_eval is
+    the one place that unpacking happens.
+    """
+
+    E_SERIES = [
+        "eval_e1_minimal_pair_auc",
+        "eval_e1_placebo_test",
+        "eval_e2_hadamard_decomposition",
+        "eval_e2_final_gamma_resolution",
+        "eval_e2_sanity_check_and_grounding",
+        "eval_unary_mechanistic_analysis",
+        "eval_per_object_alignment_intervention",
+        "eval_4condition_decomposition",
+        "eval_probe_failure_inspector",
+    ]
+
+    def test_loader_returns_the_deterministic_transform_and_an_eval_model(self):
+        import torch
+        from PIL import Image
+        from analysis.model_loader import load_clip_for_eval
+
+        model, preprocess, tokenizer = load_clip_for_eval("ViT-B-32", None, device="cpu")
+        assert model.training is False, "extraction must run with the model in eval mode"
+
+        img = Image.fromarray(
+            np.random.default_rng(0).integers(0, 255, (300, 400, 3), dtype=np.uint8))
+        assert torch.equal(preprocess(img), preprocess(img)), (
+            "the loader handed back a stochastic transform, i.e. preprocess_train"
+        )
+        assert tokenizer(["a photo of a cat"]).shape[0] == 1
+
+
+class TestSharedCLIGroups:
+    """
+    Thirty-nine entrypoints each re-declared the same flags -- --model in 29 of
+    them, --seed in 25 -- with nothing tying the copies together. That is why
+    --use_cache and --restrict_objects reached only 6 and 7 call sites while the
+    older flags were everywhere: a flag added later only lands where someone
+    remembers to add it.
+    """
+
+    E_SERIES = TestSharedModelLoader.E_SERIES
+
+
+    def test_min_pairs_comes_from_one_constant(self):
+        """
+        min_pairs silently selects the population -- the defaults were once 6, 10 and
+        20, and the paper's 33-concept set only appears at 20 -- so the shared group
+        supplies the one value and a caller has to override it deliberately.
+        """
+        import argparse
+        import inspect
+        from analysis.cli import DEFAULT_MIN_PAIRS, add_concept_args
+
+        assert inspect.signature(add_concept_args).parameters["min_pairs"].default \
+            == DEFAULT_MIN_PAIRS
+
+        p = argparse.ArgumentParser()
+        add_concept_args(p)
+        assert p.parse_args([]).min_pairs == DEFAULT_MIN_PAIRS
+        assert p.parse_args(["--min_pairs", "7"]).min_pairs == 7, "still overridable for a sweep"
+        assert "33-concept set requires 20" in p.format_help()
+
+    def test_groups_can_skip_flags_a_script_does_not_honor(self):
+        """An accepted flag that changes nothing is worse than an absent one."""
+        import argparse
+        from analysis.cli import add_run_args, add_data_args
+
+        p = argparse.ArgumentParser()
+        add_run_args(p, "logs/x", seed=None, batch_size=None)
+        add_data_args(p, csv_path=None)
+        got = vars(p.parse_args([]))
+        assert set(got) == {"output_dir", "image_root"}, got
+
+
+class TestPackageLayering:
+    """
+    ``analysis/`` holds the shared primitives -- config, paths, feature cache,
+    model loader, CLI groups, probes, extractors -- and ``evaluation/`` builds
+    experiments on top of them: 90 import edges run that way. One file ran the
+    other way, ``analyze_internal_weights.py``, which imported
+    ``evaluation.scoring_heads`` while using nothing from ``analysis`` at all. It
+    now lives in ``evaluation/``, where its dependencies already were.
+    """
+
+    @staticmethod
+    def _imports(pkg):
+        import io
+        import re
+
+        out = []
+        for f in (SRC_ROOT / pkg).rglob("*.py"):
+            src = io.open(f, encoding="utf-8").read()
+            for m in re.finditer(
+                    r"from\s+(?:benchmarks\.src\.)?(\w+)[\w\.]*\s+import|"
+                    r"import\s+(?:benchmarks\.src\.)?(\w+)\.", src):
+                out.append((str(f.relative_to(REPO_ROOT)), m.group(1) or m.group(2)))
+        assert out, f"no imports found under {SRC_ROOT / pkg}; the scan root is wrong"
+        return out
+
+    def test_analysis_never_imports_evaluation(self):
+        bad = [f for f, tgt in self._imports("analysis") if tgt == "evaluation"]
+        assert not bad, (
+            "analysis/ is the lower layer; these files invert it: " + ", ".join(sorted(set(bad)))
+        )
+
+
+class TestDualPathImports:
+    """
+    Some entrypoints are importable two ways -- ``benchmarks.src.evaluation.x``
+    from the repo root, or ``evaluation.x`` via the editable install -- and carry
+    a try/except pair of import blocks for it. A bare ``except ImportError``
+    catches far more than that: a typo, a name renamed on one side, a circular
+    import. The two branches had in fact drifted, so several names existed only
+    in the first block and a standalone run died on NameError.
+    """
+
+    @staticmethod
+    def _dual_blocks(path):
+        """Yield (try_names, except_names) for each try/except ImportError pair."""
+        import ast
+        import io
+
+        tree = ast.parse(io.open(path, encoding="utf-8").read())
+
+        def bound(stmts):
+            out = set()
+            for st in ast.walk(ast.Module(body=list(stmts), type_ignores=[])):
+                if isinstance(st, (ast.Import, ast.ImportFrom)):
+                    for a in st.names:
+                        out.add(a.asname or a.name.split(".")[0])
+            return out
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            for h in node.handlers:
+                name = getattr(h.type, "id", None)
+                if name == "ImportError":
+                    yield bound(node.body), bound(h.body)
+
+    @staticmethod
+    def _dual_path_files():
+        import io
+
+        out = []
+        for f in SRC_ROOT.rglob("*.py"):
+            if "open_clip" in f.parts or "training" in f.parts:
+                continue
+            s = io.open(f, encoding="utf-8").read()
+            if "except ImportError:" in s and "benchmarks.src." in s:
+                out.append(str(f))
+        assert out, f"no dual-path modules found under {SRC_ROOT}; the scan root is wrong"
+        return sorted(out)
+
+    def test_both_branches_bind_the_same_names(self):
+        drifted = []
+        for f in self._dual_path_files():
+            for tnames, enames in self._dual_blocks(f):
+                # the guard helper is expected only in the fallback branch
+                enames = enames - {"reraise_unless_standalone"}
+                if tnames != enames:
+                    drifted.append((f, sorted(tnames ^ enames)))
+        assert not drifted, (
+            "a name is bound in only one import branch, so one invocation "
+            "convention will fail at runtime: " + repr(drifted)
+        )
+
+    def test_fallback_branches_are_guarded(self):
+        unguarded = []
+        for f in self._dual_path_files():
+            for _, enames in self._dual_blocks(f):
+                if "reraise_unless_standalone" not in enames:
+                    unguarded.append(f)
+        assert not unguarded, (
+            "a bare except ImportError swallows real failures; call "
+            "reraise_unless_standalone() first in: " + repr(sorted(set(unguarded)))
+        )
+
+    def test_guard_reraises_when_benchmarks_is_importable(self):
+        from analysis.import_compat import reraise_unless_standalone
+
+        with pytest.raises(ImportError):
+            try:
+                from benchmarks.src.analysis.no_such_module import thing  # noqa: F401
+            except ImportError:
+                reraise_unless_standalone()
+
+        with pytest.raises(ImportError):
+            try:
+                from benchmarks.src.analysis.feature_cache import no_such_name  # noqa: F401
+            except ImportError:
+                reraise_unless_standalone()
+
+
+class TestLayerKeyScheme:
+    """
+    A transformer block had three names. `extract_all_features_unified` returned
+    the very same array as ``layers["Layer 1"]`` and ``pipeline["Layer1"]``, and
+    `PipelineStep` supplied a third scheme for the steps around them. Nothing
+    crashed on the mismatch: `get_layer_features` answers an unknown key with the
+    final embedding, so a consumer holding the wrong spelling drew a flat
+    "layerwise" curve. `config.layer_key` is now the only producer of the name.
+    """
+
+    def test_formatter_covers_the_embedding_and_the_blocks(self):
+        from analysis.config import layer_key
+
+        assert layer_key(0) == "Embedding"
+        assert [layer_key(i) for i in (1, 9, 12)] == ["Layer 1", "Layer 9", "Layer 12"]
+
+    def test_extractor_emits_one_scheme_per_dict(self):
+        from analysis.config import PipelineStep, layer_key
+        from analysis.extractor import extract_all_features_unified
+        from analysis.model_loader import load_clip_for_eval
+
+        model, _, tokenizer = load_clip_for_eval("ViT-B-32", None, device="cpu")
+        res = extract_all_features_unified(
+            model, tokenizer, ["a photo of a cat", "a photo with no cat"],
+            device="cpu", batch_size=2)
+
+        n_blocks = len(model.transformer.resblocks)
+        assert list(res["layers"]) == [layer_key(i) for i in range(n_blocks + 1)]
+        assert set(res["pipeline"]) == {s.value for s in PipelineStep}, (
+            "pipeline carried a second spelling of the blocks; they belong to "
+            "'layers' and were bit-identical copies"
+        )
+
+    def test_no_module_spells_a_layer_name_inline(self):
+        import io
+        import re
+
+        # `layer_key` itself, and prose/labels, are exempt: only f-string or
+        # concatenated *construction* of the key from an index is a second producer.
+        pattern = re.compile(r'f"Layer ?\{|"Layer ?" ?\+ ?str\(')
+        offenders = []
+        for f in SRC_ROOT.rglob("*.py"):
+            if "open_clip" in f.parts or f.name == "config.py":
+                continue
+            for i, line in enumerate(io.open(f, encoding="utf-8"), 1):
+                if pattern.search(line):
+                    offenders.append(f"{f.relative_to(REPO_ROOT)}:{i}")
+        assert not offenders, (
+            "build layer names with analysis.config.layer_key, not inline: "
+            + ", ".join(offenders)
+        )
+
+
+class TestNestedFeatureMasking:
+    """
+    `filter_vision_dict` named ``"layers"`` as the one nested dict to mask. The
+    text extractor's dict nests ``"pipeline"`` the same way, and it fell to the
+    passthrough branch -- returned whole while every sibling array was subset, so
+    rows no longer lined up across the dict.
+    """
+
+    def test_every_nested_dict_is_masked(self):
+        from analysis.config import filter_vision_dict
+
+        vis = {
+            "layers": {"Layer 1": np.arange(20).reshape(10, 2)},
+            "pipeline": {"Step4_Final_L2Norm": np.arange(30).reshape(10, 3)},
+            "final_l2norm": np.arange(10).reshape(10, 1),
+            "loaded_flags": np.ones(10, dtype=bool),
+            "model_name": "ViT-B-32",
+        }
+        mask = np.zeros(10, dtype=bool)
+        mask[[1, 4, 7]] = True
+        out = filter_vision_dict(vis, mask)
+
+        assert out["layers"]["Layer 1"].shape == (3, 2)
+        assert out["pipeline"]["Step4_Final_L2Norm"].shape == (3, 3)
+        assert out["final_l2norm"].shape == (3, 1)
+        assert out["model_name"] == "ViT-B-32"
+        assert np.array_equal(out["pipeline"]["Step4_Final_L2Norm"],
+                              vis["pipeline"]["Step4_Final_L2Norm"][mask])
+
+
+class TestPipelineStepsAreRequired:
+    """
+    The layerwise probe looked each post-block step up with a fallback to a legacy
+    spelling and then added it only ``if key in pipeline_dict``. A step the
+    extractor stopped emitting would silently vanish from the report and its figure.
+    """
+
+    def test_missing_step_raises_instead_of_dropping_a_curve(self):
+        import benchmarks.src.evaluation.eval_layerwise_linear_probe as mod
+
+        def fake_extract(**kwargs):
+            return {
+                "layers": {"Embedding": np.zeros((2, 4))},
+                "pipeline": {"Step2_Layer12_LN": np.zeros((2, 4))},
+            }
+
+        original = mod.extract_all_features_unified
+        mod.extract_all_features_unified = fake_extract
+        try:
+            with pytest.raises(KeyError) as excinfo:
+                mod.extract_layerwise_feature_dict(None, None, ["x"], device="cpu")
+        finally:
+            mod.extract_all_features_unified = original
+
+        message = str(excinfo.value)
+        assert "Step3_Projected_Unnorm" in message and "Step4_Final_L2Norm" in message
+
+
+class TestHeadlessPlotting:
+    """
+    These scripts run on GPU nodes with no display. pyplot picks its backend at
+    import time, so the backend has to be selected *before* the import -- which is
+    why every plotting module carries `matplotlib.use("Agg")`. Four modules carried
+    only the pyplot line and worked by luck: pyplot falls back to Agg when DISPLAY
+    is unset, but under X11 forwarding it would try to open a window instead.
+    """
+
+    @staticmethod
+    def _pyplot_modules():
+        import ast
+        import io
+
+        out = []
+        for f in SRC_ROOT.rglob("*.py"):
+            if "open_clip" in f.parts:
+                continue
+            src = io.open(f, encoding="utf-8").read()
+            if "matplotlib.pyplot" not in src:
+                continue
+            out.append((f, ast.parse(src)))
+        return out
+
+    def test_every_pyplot_import_is_preceded_by_a_backend_selection(self):
+        import ast
+
+        offenders = []
+        for path, tree in self._pyplot_modules():
+            pyplot_line = backend_line = None
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for a in node.names:
+                        if a.name == "matplotlib.pyplot" and pyplot_line is None:
+                            pyplot_line = node.lineno
+                elif isinstance(node, ast.ImportFrom):
+                    # `from analysis.plotting import plt` -- the module that owns the
+                    # backend; importing plt from it is already ordered correctly.
+                    if node.module and node.module.endswith("analysis.plotting"):
+                        backend_line = 0
+                elif isinstance(node, ast.Call):
+                    fn = node.func
+                    if (isinstance(fn, ast.Attribute) and fn.attr == "use"
+                            and isinstance(fn.value, ast.Name) and fn.value.id == "matplotlib"):
+                        backend_line = min(node.lineno, backend_line if backend_line is not None else node.lineno)
+            if pyplot_line is not None and (backend_line is None or backend_line > pyplot_line):
+                offenders.append(str(path.relative_to(REPO_ROOT)))
+        assert not offenders, (
+            'select the backend before importing pyplot -- matplotlib.use("Agg") first, '
+            "or import plt from analysis.plotting: " + ", ".join(sorted(offenders))
+        )
+
+    def test_shared_module_selects_agg(self):
+        import matplotlib
+
+        from analysis.plotting import plt  # noqa: F401
+
+        assert matplotlib.get_backend().lower() == "agg"
+
+
+class TestScorerCheckpointRoundTrip:
+    """
+    `DualClassifierProductScorer.vision_type` selects which of three vision
+    classifiers `forward` runs, and `load_weights` sets it -- but it lived nowhere
+    in `state_dict`. `build_scorer` constructs with the default `"mlp"`, so
+    reloading a low-rank or linear checkpoint restored the tensors and then ran the
+    MLP branch over its zero-initialised weights. Nothing raises: every score comes
+    out 0.0, all MCQ options tie, and the tie-break picks at random.
+
+    The rank and hidden dim had the same problem one step earlier -- `load_weights`
+    swapped in differently shaped `nn.Parameter`s after construction, so the saved
+    shapes no longer matched what the constructor would build.
+    """
+
+    DIM = 16
+    NAMES = ["cosine", "weighted_cosine", "bilinear", "logistic_regression", "shallow_mlp",
+             "deep_mlp", "low_rank_bilinear", "nonlinear_biencoder", "dual_classifier_product"]
+
+    @staticmethod
+    def _inputs(dim, seed=0):
+        import torch
+
+        g = torch.Generator().manual_seed(seed)
+        return torch.randn(4, dim, generator=g), torch.randn(4, 3, dim, generator=g)
+
+    def _dual(self, **load_kwargs):
+        import torch
+        from benchmarks.src.evaluation.scoring_heads import DualClassifierProductScorer
+
+        torch.manual_seed(0)
+        ctor = {k: load_kwargs.pop(k) for k in ("vision_rank", "vision_hidden_dim", "use_hard_sign")
+                if k in load_kwargs}
+        s = DualClassifierProductScorer(feature_dim=self.DIM, **ctor)
+        s.load_weights(w_t=torch.randn(self.DIM), b_t=0.3, **load_kwargs)
+        return s
+
+    @pytest.mark.parametrize("label,kwargs", [
+        ("low_rank", dict(vision_rank=8, b_v=0.1)),
+        ("mlp", dict(vision_hidden_dim=32)),
+        ("linear", dict(b_v=0.1)),
+        ("hard_sign", dict(use_hard_sign=True, b_v=0.1)),
+    ])
+    def test_dual_classifier_branch_and_scores_survive(self, label, kwargs):
+        import torch
+        from benchmarks.src.evaluation.scoring_heads import build_scorer
+
+        if label == "low_rank":
+            kwargs.update(U_v=torch.randn(self.DIM, 8), V_v=torch.randn(self.DIM, 8),
+                          w_lin_v=torch.randn(self.DIM))
+        elif label == "mlp":
+            kwargs.update(mlp_fc1_w=torch.randn(32, self.DIM), mlp_fc1_b=torch.randn(32),
+                          mlp_fc2_w=torch.randn(1, 32), mlp_fc2_b=0.2)
+        else:
+            kwargs.update(w_v=torch.randn(self.DIM))
+
+        original = self._dual(**kwargs)
+        # build_scorer is how every reload site rebuilds it: defaults only.
+        reloaded = build_scorer("dual_classifier_product", self.DIM)
+        reloaded.load_state_dict(original.state_dict())
+
+        assert reloaded.vision_type == original.vision_type, (
+            f"{label}: reload ran the {reloaded.vision_type!r} branch, not {original.vision_type!r}"
+        )
+        assert reloaded.use_hard_sign == original.use_hard_sign
+
+        v, t = self._inputs(self.DIM)
+        with torch.no_grad():
+            assert torch.equal(original(v, t), reloaded(v, t))
+
+    def test_checkpoint_without_the_config_still_loads(self, capsys):
+        """Checkpoints written before the configuration was persisted must not break."""
+        import torch
+        from benchmarks.src.evaluation.scoring_heads import build_scorer
+
+        s = build_scorer("dual_classifier_product", self.DIM)
+        with torch.no_grad():
+            for p in s.parameters():
+                p.normal_()
+        legacy = {k: v for k, v in s.state_dict().items() if k != "_extra_state"}
+
+        reloaded = build_scorer("dual_classifier_product", self.DIM)
+        reloaded.load_state_dict(legacy)
+        assert "no vision configuration" in capsys.readouterr().out, (
+            "assuming a branch is the exact failure this state exists for; say so"
+        )
+        v, t = self._inputs(self.DIM)
+        with torch.no_grad():
+            assert torch.equal(s(v, t), reloaded(v, t))
+
+    @pytest.mark.parametrize("name", NAMES)
+    def test_every_head_round_trips(self, name):
+        import torch
+        from benchmarks.src.evaluation.scoring_heads import build_scorer
+
+        torch.manual_seed(0)
+        a = build_scorer(name, self.DIM)
+        with torch.no_grad():
+            for p in a.parameters():
+                p.normal_()
+        b = build_scorer(name, self.DIM)
+        b.load_state_dict(a.state_dict())
+
+        a.eval(); b.eval()  # the MLP heads carry Dropout
+        v, t = self._inputs(self.DIM)
+        with torch.no_grad():
+            assert torch.equal(a(v, t), b(v, t))
+
+
+class TestEmbeddingWidthIsRead:
+    """
+    Three entrypoints wrote `embed_dim = 512` right after loading the model. That is
+    ViT-B/32's width and ViT-B/16's, so it survived every run so far -- ViT-L/14 is 768.
+    The two failure modes differ, and the quiet one is worse: where `embed_dim` only
+    shapes the zero row standing in for an unreadable image, a wrong value is never
+    touched while every image loads, and one bad file turns it into a concatenation
+    error partway through a run.
+    """
+
+    # ViT-B-16-SigLIP is a CustomTextCLIP: separate towers, no visual.output_dim.
+    BACKBONES = [("ViT-B-32", 512), ("ViT-B-16", 512), ("ViT-L-14", 768),
+                 ("ViT-B-16-SigLIP", 768)]
+
+    @pytest.mark.parametrize("model_name,expected", BACKBONES)
+    def test_helper_reads_the_real_width(self, model_name, expected):
+        from analysis.model_loader import get_embed_dim, load_clip_for_eval
+
+        model, _, _ = load_clip_for_eval(model_name, None, device="cpu")
+        assert get_embed_dim(model) == expected
+
+    def test_unreadable_model_raises_instead_of_guessing(self):
+        from analysis.model_loader import get_embed_dim
+
+        with pytest.raises(AttributeError, match="rather than assuming 512"):
+            get_embed_dim(object())
+
+    def test_no_entrypoint_assigns_a_literal_width(self):
+        import ast
+        import io
+
+        offenders = []
+        for f in SRC_ROOT.rglob("*.py"):
+            if "open_clip" in f.parts:
+                continue
+            tree = ast.parse(io.open(f, encoding="utf-8").read())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Assign):
+                    continue
+                names = {t.id for t in node.targets if isinstance(t, ast.Name)}
+                if not names & {"embed_dim", "feature_dim", "dim"}:
+                    continue
+                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, int):
+                    offenders.append(f"{f.relative_to(REPO_ROOT)}:{node.lineno}")
+        assert not offenders, (
+            "read the width from the model (analysis.model_loader.get_embed_dim) "
+            "instead of hard-coding it: " + ", ".join(offenders)
+        )
+
+    @pytest.mark.parametrize("dim", [512, 768])
+    def test_every_scoring_head_accepts_a_non_default_width(self, dim):
+        """The hidden widths inside DeepMLPScorer are 512/256/128; its *input* is 2*dim."""
+        import torch
+        from benchmarks.src.evaluation.scoring_heads import build_scorer
+
+        for name in ["cosine", "weighted_cosine", "bilinear", "logistic_regression",
+                     "shallow_mlp", "deep_mlp", "low_rank_bilinear",
+                     "nonlinear_biencoder", "dual_classifier_product"]:
+            scorer = build_scorer(name, dim)
+            scorer.eval()
+            v, t = torch.randn(2, dim), torch.randn(2, 3, dim)
+            with torch.no_grad():
+                assert scorer(v, t).shape == (2, 3), f"{name} at dim={dim}"
+
+
+class TestSingleWGeneralization:
+    """
+    The 67.43% main-effect ablation is a per-pair projection, i.e. a different W per
+    pair, while a retriever uses one. `eval_single_w_generalization` asks how far a
+    single shared W gets on concepts held out of its fit. Three things have to hold
+    for that number to mean anything.
+    """
+
+    @staticmethod
+    def _quads(n=40, dim=16, seed=0):
+        import torch
+
+        g = torch.Generator().manual_seed(seed)
+        return tuple(torch.randn(n, dim, generator=g) for _ in range(4))
+
+    def test_identity_rung_reproduces_plain_cosine(self):
+        """The 0-parameter rung must *be* the baseline, or the ladder has no zero point."""
+        import torch
+        from benchmarks.src.evaluation.eval_single_w_generalization import (
+            IdentityMatcher, joint_correct,
+        )
+
+        v_pos, v_neg, t_pos, t_neg = self._quads()
+        ok = joint_correct(IdentityMatcher(), (v_pos, v_neg, t_pos, t_neg))
+
+        s_pp = torch.sum(v_pos * t_pos, dim=-1)
+        s_mm = torch.sum(v_neg * t_neg, dim=-1)
+        s_pm = torch.sum(v_pos * t_neg, dim=-1)
+        s_mp = torch.sum(v_neg * t_pos, dim=-1)
+        expected = (torch.minimum(s_pp, s_mm) > torch.maximum(s_pm, s_mp)).numpy()
+        assert np.array_equal(ok, expected)
+
+    def test_shared_bias_cancels_in_2x2(self):
+        """
+        Why the experiment reports no `--no_bias` variant: a bias shared by all four
+        scores shifts min and max equally, so Delta(S) -- and therefore 2x2 accuracy --
+        cannot move. Stated in the module docstring; checked here.
+        """
+        import torch
+        import torch.nn as nn
+        from benchmarks.src.evaluation.eval_single_w_generalization import (
+            FullMatcher, joint_correct,
+        )
+
+        quads = self._quads(dim=8)
+        base = FullMatcher(8)
+        with torch.no_grad():
+            base.W.normal_(generator=torch.Generator().manual_seed(1))
+
+        class Biased(nn.Module):
+            def __init__(self, inner, b):
+                super().__init__()
+                self.inner, self.b = inner, b
+
+            def forward(self, v, t):
+                return self.inner(v, t) + self.b
+
+        for b in (-3.0, 0.25, 7.5):
+            assert np.array_equal(joint_correct(base, quads),
+                                  joint_correct(Biased(base, b), quads)), b
+
+    def test_folds_never_share_a_concept(self):
+        """A concept in both train and test would make this a memorisation test."""
+        from sklearn.model_selection import GroupKFold
+
+        groups = np.repeat([f"c{i}" for i in range(33)], 20)
+        for tr, te in GroupKFold(n_splits=5).split(np.zeros(len(groups)), groups=groups):
+            assert not (set(groups[tr]) & set(groups[te]))
+
+    def test_untrainable_families_are_left_alone(self):
+        """identity and random carry no free parameters; training must be a no-op."""
+        import copy
+        import torch
+        from benchmarks.src.evaluation.eval_single_w_generalization import (
+            build_family, train_matcher,
+        )
+
+        for name in ("identity", "random"):
+            net, n_params = build_family(name, 8, seed=0)
+            assert n_params == 0
+            before = copy.deepcopy(net.state_dict())
+            train_matcher(net, self._quads(dim=8), epochs=3)
+            after = net.state_dict()
+            assert set(before) == set(after)
+            for k in before:
+                assert torch.equal(before[k], after[k]), f"{name}.{k} moved"
+
+    def test_parameter_counts_match_the_families(self):
+        from benchmarks.src.evaluation.eval_single_w_generalization import build_family
+
+        assert build_family("diagonal", 512, 0)[1] == 512
+        assert build_family("lowrank_2", 512, 0)[1] == 2 * 512 * 2
+        assert build_family("full", 512, 0)[1] == 512 * 512
+
+

@@ -1,0 +1,58 @@
+{
+  "vision_summary": {
+    "total_failures": 1647,
+    "mean_val_accuracy_pct": 52.295437466702325,
+    "false_positive_count": 944,
+    "false_negative_count": 703,
+    "worst_failed_objects": [
+      {
+        "object_name": "keyboard",
+        "vision_val_acc_pct": 44.16666666666666
+      },
+      {
+        "object_name": "boat",
+        "vision_val_acc_pct": 45.0
+      },
+      {
+        "object_name": "teddy bear",
+        "vision_val_acc_pct": 45.0
+      },
+      {
+        "object_name": "mouse",
+        "vision_val_acc_pct": 46.666666666666664
+      },
+      {
+        "object_name": "truck",
+        "vision_val_acc_pct": 48.75
+      }
+    ]
+  },
+  "text_summary": {
+    "total_failures": 3363,
+    "mean_val_accuracy_pct": 53.543288021006745,
+    "false_affirmed_count": 1694,
+    "false_negated_count": 1669,
+    "worst_failed_objects": [
+      {
+        "object_name": "parking meter",
+        "text_val_acc_pct": 16.0
+      },
+      {
+        "object_name": "teddy bear",
+        "text_val_acc_pct": 17.5
+      },
+      {
+        "object_name": "donut",
+        "text_val_acc_pct": 19.999999999999993
+      },
+      {
+        "object_name": "horse",
+        "text_val_acc_pct": 20.27777777777778
+      },
+      {
+        "object_name": "surfboard",
+        "text_val_acc_pct": 26.0
+      }
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "vision_summary": {
+    "total_failures": 1213,
+    "mean_val_accuracy_pct": 65.80607549166547,
+    "false_positive_count": 594,
+    "false_negative_count": 619,
+    "worst_failed_objects": [
+      {
+        "object_name": "snowboard",
+        "vision_val_acc_pct": 45.0
+      },
+      {
+        "object_name": "dining table",
+        "vision_val_acc_pct": 50.0
+      },
+      {
+        "object_name": "parking meter",
+        "vision_val_acc_pct": 50.0
+      },
+      {
+        "object_name": "knife",
+        "vision_val_acc_pct": 50.0
+      },
+      {
+        "object_name": "stop sign",
+        "vision_val_acc_pct": 50.0
+      }
+    ]
+  },
+  "text_summary": {
+    "total_failures": 860,
+    "mean_val_accuracy_pct": 86.10872614734727,
+    "false_affirmed_count": 472,
+    "false_negated_count": 388,
+    "worst_failed_objects": [
+      {
+        "object_name": "skateboard",
+        "text_val_acc_pct": 41.33333333333333
+      },
+      {
+        "object_name": "toothbrush",
+        "text_val_acc_pct": 50.0
+      },
+      {
+        "object_name": "carrot",
+        "text_val_acc_pct": 60.909090909090914
+      },
+      {
+        "object_name": "train",
+        "text_val_acc_pct": 66.78571428571429
+      },
+      {
+        "object_name": "broccoli",
+        "text_val_acc_pct": 72.14285714285714
+      }
+    ]
+  }
+}

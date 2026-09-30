@@ -1,0 +1,16 @@
+{
+ "IP": "data/coco/images/val2014/COCO_val2014_000000294475_03.png",
+ "IN": "data/coco/images/val2014/COCO_val2014_000000294475_05.png",
+ "TP": "This picture contains no cup, but it includes a pizza.",
+ "TN": "This picture contains no pizza, but it includes a cup.",
+ "Spp": 0.269454687833786,
+ "Spm": 0.2389417588710785,
+ "Smp": 0.2611898183822632,
+ "Smm": 0.23266291618347168,
+ "C": 0.25056229531764984,
+ "alpha": 0.0036359280347824097,
+ "beta": 0.014759957790374756,
+ "gamma": 0.0004965066909790039,
+ "delta": -0.028526902198791504,
+ "ratio": 0.03363876089827202
+}

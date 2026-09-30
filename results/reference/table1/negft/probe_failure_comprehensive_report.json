@@ -1,0 +1,58 @@
+{
+  "vision_summary": {
+    "total_failures": 1222,
+    "mean_val_accuracy_pct": 65.14881988884535,
+    "false_positive_count": 595,
+    "false_negative_count": 627,
+    "worst_failed_objects": [
+      {
+        "object_name": "baseball bat",
+        "vision_val_acc_pct": 49.16666666666666
+      },
+      {
+        "object_name": "apple",
+        "vision_val_acc_pct": 50.0
+      },
+      {
+        "object_name": "dining table",
+        "vision_val_acc_pct": 50.0
+      },
+      {
+        "object_name": "microwave",
+        "vision_val_acc_pct": 50.0
+      },
+      {
+        "object_name": "fork",
+        "vision_val_acc_pct": 50.0
+      }
+    ]
+  },
+  "text_summary": {
+    "total_failures": 393,
+    "mean_val_accuracy_pct": 93.15178084318978,
+    "false_affirmed_count": 237,
+    "false_negated_count": 156,
+    "worst_failed_objects": [
+      {
+        "object_name": "parking meter",
+        "text_val_acc_pct": 54.0
+      },
+      {
+        "object_name": "toothbrush",
+        "text_val_acc_pct": 68.0
+      },
+      {
+        "object_name": "train",
+        "text_val_acc_pct": 75.71428571428572
+      },
+      {
+        "object_name": "carrot",
+        "text_val_acc_pct": 81.81818181818181
+      },
+      {
+        "object_name": "sandwich",
+        "text_val_acc_pct": 82.72727272727272
+      }
+    ]
+  }
+}

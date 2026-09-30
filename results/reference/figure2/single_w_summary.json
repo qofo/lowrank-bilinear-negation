@@ -1,0 +1,204 @@
+{
+  "n_concepts": 42,
+  "n_pairs": 2480,
+  "n_splits": 5,
+  "chance_pct": 16.666666666666668,
+  "cv_strategy": "GroupKFold(object_name) -- held-out concepts appear nowhere in training",
+  "families": [
+    {
+      "family": "identity",
+      "n_trainable_params": 0,
+      "in_sample_acc_pct": 4.032271106911116,
+      "oof_pooled_acc_pct": 4.032258064516129,
+      "oof_macro_acc_pct": 4.200886596807139,
+      "oof_concept_ci_lower": 2.9788267354042017,
+      "oof_concept_ci_upper": 5.545837576231233,
+      "beats_chance": false,
+      "generalisation_gap_pp": 1.3042394987117234e-05
+    },
+    {
+      "family": "random",
+      "n_trainable_params": 0,
+      "in_sample_acc_pct": 0.7257815720648984,
+      "oof_pooled_acc_pct": 0.7258064516129032,
+      "oof_macro_acc_pct": 0.709902568619459,
+      "oof_concept_ci_lower": 0.3316772724646342,
+      "oof_concept_ci_upper": 1.1540001867189178,
+      "beats_chance": false,
+      "generalisation_gap_pp": -2.487954800489689e-05
+    },
+    {
+      "family": "diagonal",
+      "n_trainable_params": 512,
+      "in_sample_acc_pct": 12.983590457103471,
+      "oof_pooled_acc_pct": 5.604838709677419,
+      "oof_macro_acc_pct": 5.350989495168013,
+      "oof_concept_ci_lower": 4.221791512572999,
+      "oof_concept_ci_upper": 6.576040198123539,
+      "beats_chance": false,
+      "generalisation_gap_pp": 7.378751747426052
+    },
+    {
+      "family": "lowrank_1",
+      "n_trainable_params": 1024,
+      "in_sample_acc_pct": 22.118122230577534,
+      "oof_pooled_acc_pct": 20.362903225806452,
+      "oof_macro_acc_pct": 16.950461965302583,
+      "oof_concept_ci_lower": 12.816012839980418,
+      "oof_concept_ci_upper": 21.608213322288876,
+      "beats_chance": false,
+      "generalisation_gap_pp": 1.7552190047710816
+    },
+    {
+      "family": "lowrank_2",
+      "n_trainable_params": 2048,
+      "in_sample_acc_pct": 36.60239704299904,
+      "oof_pooled_acc_pct": 25.201612903225808,
+      "oof_macro_acc_pct": 21.704478549737253,
+      "oof_concept_ci_lower": 18.108260631423544,
+      "oof_concept_ci_upper": 25.690466373705902,
+      "beats_chance": true,
+      "generalisation_gap_pp": 11.40078413977323
+    },
+    {
+      "family": "lowrank_4",
+      "n_trainable_params": 4096,
+      "in_sample_acc_pct": 47.99515030344095,
+      "oof_pooled_acc_pct": 26.89516129032258,
+      "oof_macro_acc_pct": 23.42004483287037,
+      "oof_concept_ci_lower": 20.089152896790655,
+      "oof_concept_ci_upper": 27.196397124474466,
+      "beats_chance": true,
+      "generalisation_gap_pp": 21.09998901311837
+    },
+    {
+      "family": "lowrank_8",
+      "n_trainable_params": 8192,
+      "in_sample_acc_pct": 60.02037244779768,
+      "oof_pooled_acc_pct": 29.95967741935484,
+      "oof_macro_acc_pct": 26.750128151150175,
+      "oof_concept_ci_lower": 23.355057910344414,
+      "oof_concept_ci_upper": 30.50080091972906,
+      "beats_chance": true,
+      "generalisation_gap_pp": 30.060695028442844
+    },
+    {
+      "family": "lowrank_16",
+      "n_trainable_params": 16384,
+      "in_sample_acc_pct": 72.03644861158969,
+      "oof_pooled_acc_pct": 32.54032258064516,
+      "oof_macro_acc_pct": 29.74137724504562,
+      "oof_concept_ci_lower": 26.104988303111966,
+      "oof_concept_ci_upper": 33.657728581501765,
+      "beats_chance": true,
+      "generalisation_gap_pp": 39.49612603094453
+    },
+    {
+      "family": "lowrank_32",
+      "n_trainable_params": 32768,
+      "in_sample_acc_pct": 79.33509517959106,
+      "oof_pooled_acc_pct": 32.943548387096776,
+      "oof_macro_acc_pct": 30.530755450039937,
+      "oof_concept_ci_lower": 27.063060962062693,
+      "oof_concept_ci_upper": 34.22077965508466,
+      "beats_chance": true,
+      "generalisation_gap_pp": 46.39154679249429
+    },
+    {
+      "family": "full",
+      "n_trainable_params": 262144,
+      "in_sample_acc_pct": 90.6150195897998,
+      "oof_pooled_acc_pct": 28.991935483870968,
+      "oof_macro_acc_pct": 27.864718132109704,
+      "oof_concept_ci_lower": 24.125580945448736,
+      "oof_concept_ci_upper": 31.880227700027838,
+      "beats_chance": true,
+      "generalisation_gap_pp": 61.62308410592883
+    },
+    {
+      "family": "lowrank_64",
+      "n_trainable_params": 65536,
+      "in_sample_acc_pct": 82.93325233033337,
+      "oof_pooled_acc_pct": 33.346774193548384,
+      "oof_macro_acc_pct": 30.793860475589184,
+      "oof_concept_ci_lower": 27.10464828833494,
+      "oof_concept_ci_upper": 34.7725217612059,
+      "beats_chance": true,
+      "generalisation_gap_pp": 49.58647813678499
+    },
+    {
+      "family": "lowrank_128",
+      "n_trainable_params": 131072,
+      "in_sample_acc_pct": 86.16963001964415,
+      "oof_pooled_acc_pct": 33.50806451612904,
+      "oof_macro_acc_pct": 31.146308686722495,
+      "oof_concept_ci_lower": 27.713253835110862,
+      "oof_concept_ci_upper": 34.833452984564765,
+      "beats_chance": true,
+      "generalisation_gap_pp": 52.66156550351511
+    },
+    {
+      "family": "lowrank_256",
+      "n_trainable_params": 262144,
+      "in_sample_acc_pct": 86.27062980459459,
+      "oof_pooled_acc_pct": 32.21774193548387,
+      "oof_macro_acc_pct": 29.904454538138673,
+      "oof_concept_ci_lower": 26.214908610362794,
+      "oof_concept_ci_upper": 33.83638657720096,
+      "beats_chance": true,
+      "generalisation_gap_pp": 54.05288786911072
+    },
+    {
+      "family": "lowrank_512",
+      "n_trainable_params": 524288,
+      "in_sample_acc_pct": 88.57856528177774,
+      "oof_pooled_acc_pct": 32.29838709677419,
+      "oof_macro_acc_pct": 30.930971878643234,
+      "oof_concept_ci_lower": 27.496074380840202,
+      "oof_concept_ci_upper": 34.65129825264232,
+      "beats_chance": true,
+      "generalisation_gap_pp": 56.28017818500355
+    }
+  ],
+  "verdict": "(a) at least one W family generalises above chance to unseen concepts",
+  "smallest_family_above_chance": "lowrank_2",
+  "reference_points": {
+    "cosine_baseline_2x2_pct": 0.88,
+    "per_pair_projection_ceiling_2x2_pct": 67.43,
+    "per_concept_full_bilinear_in_sample_pct": 88.23,
+    "per_concept_full_bilinear_oof_pct": 8.69,
+    "note": "The ceiling is a per-pair projection, i.e. a different W per pair; it is not reachable by any single W and is listed as the upper reference only."
+  },
+  "provenance": {
+    "model": "ViT-B-32",
+    "pretrained": "openai",
+    "csv_path": "benchmarks/data/images/beaf_counterfactual_ab_swap_by_concept.csv",
+    "image_root": "benchmarks/data/images",
+    "min_pairs": 20,
+    "seed": 42,
+    "batch_size": 128,
+    "restrict_objects": null,
+    "use_cache": true,
+    "git_commit": "953e250",
+    "run_utc": "2026-09-18T06:17:23Z",
+    "extra": {
+      "families": [
+        "identity",
+        "random",
+        "diagonal",
+        "lowrank_1",
+        "lowrank_2",
+        "lowrank_4",
+        "lowrank_8",
+        "lowrank_16",
+        "lowrank_32",
+        "full",
+        "lowrank_64",
+        "lowrank_128",
+        "lowrank_256",
+        "lowrank_512"
+      ],
+      "epochs": 150
+    }
+  }
+}
