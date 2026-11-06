@@ -256,6 +256,19 @@ class TestPipelineOnSyntheticData:
         needs_weights = df.quantity.str.startswith(("openai ", "negft "))
         assert df[~needs_weights].reproduced.notna().all(), df[df.reproduced.isna()].to_string()
 
+    def test_table2_without_a_qualifying_object_says_why(self, synthetic_run):
+        # It used to write an empty CSV and then stop on a KeyError while plotting.
+        out, _ = synthetic_run
+        work = os.path.dirname(out)
+        args = dict(_stages(work, out))["table2"]
+        args[args.index("--min_pairs") + 1] = "50"
+        args[args.index("--output_dir") + 1] = os.path.join(out, "table2_empty")
+        proc = subprocess.run([sys.executable, *args], cwd=work, env=_env(), capture_output=True, text=True)
+        assert proc.returncode != 0
+        assert "no object among --restrict_objects has at least 50 image pairs" in proc.stderr, proc.stderr[-2000:]
+        assert "KeyError" not in proc.stderr
+        assert not os.path.exists(os.path.join(out, "table2_empty", "per_object_intervention_results.csv"))
+
     def test_ours_w_has_rank_32(self, synthetic_run):
         out, _ = synthetic_run
         W = torch.load(os.path.join(out, "ours_rank32", "delta_warmstart_rank32.pt"),

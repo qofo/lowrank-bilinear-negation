@@ -266,20 +266,27 @@ def _encode_final_only(
     cannot reconstruct.
 
     Unreadable images still occupy a zero row so the arrays stay aligned with
-    ``image_paths``; callers filter on ``loaded_flags`` exactly as before.
+    ``image_paths``; callers filter on ``loaded_flags`` exactly as before. Missing files
+    are counted by the caller up front; files that exist but fail to decode are reported
+    here, as the residual walk does.
     """
     norm_batches, raw_batches, loaded_flags = [], [], []
+    decode_failures = []
     width = None
     for start in range(0, len(image_paths), batch_size):
         batch_paths = image_paths[start : start + batch_size]
         tensors, valid_idx = [], []
         for j, p in enumerate(batch_paths):
+            if not os.path.exists(p):
+                loaded_flags.append(False)
+                continue
             try:
                 tensors.append(preprocess(Image.open(p).convert("RGB")))
                 valid_idx.append(j)
                 loaded_flags.append(True)
-            except Exception:
+            except Exception as ex:
                 loaded_flags.append(False)
+                decode_failures.append((p, repr(ex)))
 
         if tensors:
             with torch.no_grad():
@@ -300,6 +307,10 @@ def _encode_final_only(
             r_arr[j] = raw[vi]
         norm_batches.append(n_arr)
         raw_batches.append(r_arr)
+
+    if decode_failures:
+        print(f"[WARNING] {len(decode_failures)}/{len(image_paths)} images existed but failed to decode "
+              f"and are flagged unloaded. First: {decode_failures[0][0]} ({decode_failures[0][1]})")
 
     return {
         "layers": {},

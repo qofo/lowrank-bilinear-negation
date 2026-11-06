@@ -1202,3 +1202,37 @@ class TestSingleWGeneralization:
         assert build_family("full", 512, 0)[1] == 512 * 512
 
 
+
+
+class TestFinalOnlyFallbackReportsDecodeFailures:
+    """
+    Towers without a conv1 patch embedding (SigLIP) take `_encode_final_only`, which caught
+    every exception and flagged the image unloaded without a word, while the residual walk
+    used for ViT reported every image that existed but failed to decode.
+    """
+
+    def test_decode_failure_is_flagged_and_reported(self, tmp_path, capsys):
+        import torch
+        from PIL import Image
+
+        from benchmarks.src.analysis.beaf.vision_mechanisms import _encode_final_only
+
+        class _Model:
+            def encode_image(self, x):
+                return x.flatten(1)[:, :4] + 1.0
+
+        def preprocess(img):
+            return torch.from_numpy(np.asarray(img.resize((4, 4)), dtype=np.float32) / 255.0).permute(2, 0, 1)
+
+        good = [str(tmp_path / f"{i}.png") for i in range(2)]
+        for i, p in enumerate(good):
+            Image.fromarray(np.full((8, 8, 3), 40 * (i + 1), dtype=np.uint8)).save(p)
+        corrupt = tmp_path / "corrupt.png"
+        corrupt.write_bytes(b"not an image")
+        paths = [good[0], str(corrupt), str(tmp_path / "missing.png"), good[1]]
+
+        out = _encode_final_only(_Model(), preprocess, paths, device="cpu", batch_size=4)
+        assert out["loaded_flags"] == [True, False, False, True]
+        assert not out["final_l2norm"][1:3].any() and out["final_l2norm"][[0, 3]].all()
+        log = capsys.readouterr().out
+        assert "1/4 images existed but failed to decode" in log and "corrupt.png" in log
