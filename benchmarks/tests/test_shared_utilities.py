@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis.config import (
+from benchmarks.src.analysis.config import (
     FINAL_L2NORM_KEY,
     PRE_PROJECTION_KEY,
     coerce_bool_column,
@@ -19,7 +19,7 @@ from analysis.config import (
     l2_normalize,
     to_bool,
 )
-from analysis.paths import resolve_image_path
+from benchmarks.src.analysis.paths import resolve_image_path
 
 
 class TestToBoolAndColumnCoercion:

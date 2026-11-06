@@ -295,5 +295,5 @@ def resolve_upstream_artifact(
 
     print(f"  [skipped] {name} not found at {path}")
     print(f"            Produce it with: {produced_by}")
-    print(f"            Continuing without it; the report will record the omission.")
+    print("            Continuing without it; the report will record the omission.")
     return None

@@ -7,10 +7,8 @@ Uses 5-Fold Cross Validation to ensure leak-free out-of-fold (OOF) evaluation.
 """
 
 import os
-import sys
 import json
 import argparse
-import random
 from typing import Dict, List, Tuple, Any
 
 import numpy as np
@@ -30,18 +28,12 @@ from PIL import Image
 import open_clip
 
 # Import scoring heads
-from evaluation.scoring_heads import (
+from benchmarks.src.evaluation.scoring_heads import (
     predict_with_tie_report,
     BaseScorer,
     CosineScorer,
-    WeightedCosineScorer,
-    BilinearScorer,
-    LogisticRegressionScorer,
-    ShallowMLPScorer,
-    DeepMLPScorer,
     build_scorer
 )
-from training.data import CsvMCQDataset
 
 
 from benchmarks.src.analysis.config import set_seed  # noqa: E402 — centralized seed control

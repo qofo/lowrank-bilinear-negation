@@ -18,7 +18,7 @@ import pytest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "benchmarks" / "src"
 
-from analysis.beaf.vision_mechanisms import _group_kfold
+from benchmarks.src.analysis.beaf.vision_mechanisms import _group_kfold
 from benchmarks.src.evaluation.eval_e2_hadamard_decomposition import compute_hadamard_coordinates
 
 
@@ -210,7 +210,7 @@ class TestAlignmentInterventionDeterminism:
 
     def test_set_seed_makes_every_condition_reproducible(self):
         """With set_seed, all three trained conditions repeat exactly."""
-        from analysis.config import set_seed
+        from benchmarks.src.analysis.config import set_seed
         from benchmarks.src.evaluation.eval_per_object_alignment_intervention import (
             train_lowrank_bilinear_matcher, train_bilinear_matcher, train_labclip_matcher,
         )
@@ -443,7 +443,7 @@ class TestUpstreamArtifactResolution:
     """
 
     def test_missing_required_artifact_names_the_producing_command(self, tmp_path):
-        from analysis.feature_cache import resolve_upstream_artifact
+        from benchmarks.src.analysis.feature_cache import resolve_upstream_artifact
 
         with pytest.raises(FileNotFoundError) as e:
             resolve_upstream_artifact(str(tmp_path / "absent.csv"),
@@ -453,7 +453,7 @@ class TestUpstreamArtifactResolution:
         assert "gitignored" in msg, "and why a fresh clone lacks it"
 
     def test_optional_artifact_returns_none_instead_of_raising(self, tmp_path, capsys):
-        from analysis.feature_cache import resolve_upstream_artifact
+        from benchmarks.src.analysis.feature_cache import resolve_upstream_artifact
 
         got = resolve_upstream_artifact(str(tmp_path / "absent.csv"),
                                         produced_by="python -m some.producer",
@@ -462,7 +462,7 @@ class TestUpstreamArtifactResolution:
         assert "skipped" in capsys.readouterr().out, "an optional skip must still be visible"
 
     def test_existing_artifact_passes_through(self, tmp_path):
-        from analysis.feature_cache import resolve_upstream_artifact
+        from benchmarks.src.analysis.feature_cache import resolve_upstream_artifact
 
         p = tmp_path / "present.csv"
         p.write_text("a,b\n1,2\n")
@@ -491,14 +491,14 @@ class TestProbeRegistry:
     """
 
     def test_name_list_is_derived_from_the_registry(self):
-        from analysis.beaf.probe_factory import SUPPORTED_PROBES, PROBE_REGISTRY
+        from benchmarks.src.analysis.beaf.probe_factory import SUPPORTED_PROBES, PROBE_REGISTRY
 
         assert SUPPORTED_PROBES == list(PROBE_REGISTRY), (
             "SUPPORTED_PROBES must be derived from PROBE_REGISTRY, not maintained beside it"
         )
 
     def test_every_registered_probe_has_a_grid_and_builds(self):
-        from analysis.beaf.probe_factory import (
+        from benchmarks.src.analysis.beaf.probe_factory import (
             SUPPORTED_PROBES, get_param_candidates, create_probe_classifier,
         )
 
@@ -509,7 +509,7 @@ class TestProbeRegistry:
                 assert create_probe_classifier(name, seed=42, **params) is not None
 
     def test_unknown_probe_fails_the_same_way_from_both_entry_points(self):
-        from analysis.beaf.probe_factory import get_param_candidates, create_probe_classifier
+        from benchmarks.src.analysis.beaf.probe_factory import get_param_candidates, create_probe_classifier
 
         for fn in (get_param_candidates, create_probe_classifier):
             with pytest.raises(ValueError, match="Unsupported probe_type"):
@@ -517,7 +517,7 @@ class TestProbeRegistry:
 
     def test_no_bias_reaches_the_probes_that_can_honor_it(self):
         """`--no_bias` is a claim about the fitted model, so it has to land."""
-        from analysis.beaf.probe_factory import create_probe_classifier
+        from benchmarks.src.analysis.beaf.probe_factory import create_probe_classifier
 
         for name in ("logistic", "ridge", "sgd_log", "sgd_hinge"):
             clf = create_probe_classifier(name, seed=42, fit_intercept=False)
@@ -525,7 +525,7 @@ class TestProbeRegistry:
 
     def test_svm_probes_warn_that_they_cannot_honor_no_bias(self, capsys):
         """sklearn's SVC has no fit_intercept; reporting a 'no-bias' SVM number would lie."""
-        import analysis.beaf.probe_factory as pf
+        import benchmarks.src.analysis.beaf.probe_factory as pf
 
         pf._NO_BIAS_WARNED.discard("svm_rbf")
         pf.create_probe_classifier("svm_rbf", seed=42, fit_intercept=False)
@@ -550,7 +550,7 @@ class TestPyTorchProbeSklearnContract:
 
     @pytest.mark.parametrize("labels", [(0, 1), (2, 5), ("neg", "pos")])
     def test_any_binary_label_pair_scores_correctly(self, labels):
-        from analysis.beaf.probe_factory import create_probe_classifier
+        from benchmarks.src.analysis.beaf.probe_factory import create_probe_classifier
 
         X, y01 = self._separable()
         y = np.where(y01 == 1, labels[1], labels[0])
@@ -564,20 +564,20 @@ class TestPyTorchProbeSklearnContract:
         assert list(clf.classes_) == sorted(labels, key=str)
 
     def test_classes_is_not_set_before_fit(self):
-        from analysis.beaf.probe_factory import create_probe_classifier
+        from benchmarks.src.analysis.beaf.probe_factory import create_probe_classifier
 
         clf = create_probe_classifier("mlp", seed=42)
         assert not hasattr(clf, "classes_"), "classes_ is a fitted attribute, not a constructor one"
 
     def test_predict_before_fit_raises_instead_of_crashing_on_none(self):
-        from analysis.beaf.probe_factory import create_probe_classifier
+        from benchmarks.src.analysis.beaf.probe_factory import create_probe_classifier
 
         X, _ = self._separable()
         with pytest.raises(ValueError, match="not fitted"):
             create_probe_classifier("mlp", seed=42).predict(X)
 
     def test_non_binary_target_is_rejected(self):
-        from analysis.beaf.probe_factory import create_probe_classifier
+        from benchmarks.src.analysis.beaf.probe_factory import create_probe_classifier
 
         rng = np.random.RandomState(0)
         X = rng.randn(60, 8)
@@ -611,7 +611,7 @@ class TestSharedModelLoader:
     def test_loader_returns_the_deterministic_transform_and_an_eval_model(self):
         import torch
         from PIL import Image
-        from analysis.model_loader import load_clip_for_eval
+        from benchmarks.src.analysis.model_loader import load_clip_for_eval
 
         model, preprocess, tokenizer = load_clip_for_eval("ViT-B-32", None, device="cpu")
         assert model.training is False, "extraction must run with the model in eval mode"
@@ -644,7 +644,7 @@ class TestSharedCLIGroups:
         """
         import argparse
         import inspect
-        from analysis.cli import DEFAULT_MIN_PAIRS, add_concept_args
+        from benchmarks.src.analysis.cli import DEFAULT_MIN_PAIRS, add_concept_args
 
         assert inspect.signature(add_concept_args).parameters["min_pairs"].default \
             == DEFAULT_MIN_PAIRS
@@ -658,7 +658,7 @@ class TestSharedCLIGroups:
     def test_groups_can_skip_flags_a_script_does_not_honor(self):
         """An accepted flag that changes nothing is worse than an absent one."""
         import argparse
-        from analysis.cli import add_run_args, add_data_args
+        from benchmarks.src.analysis.cli import add_run_args, add_data_args
 
         p = argparse.ArgumentParser()
         add_run_args(p, "logs/x", seed=None, batch_size=None)
@@ -699,92 +699,68 @@ class TestPackageLayering:
         )
 
 
-class TestDualPathImports:
+class TestSingleImportRoot:
     """
-    Some entrypoints are importable two ways -- ``benchmarks.src.evaluation.x``
-    from the repo root, or ``evaluation.x`` via the editable install -- and carry
-    a try/except pair of import blocks for it. A bare ``except ImportError``
-    catches far more than that: a typo, a name renamed on one side, a circular
-    import. The two branches had in fact drifted, so several names existed only
-    in the first block and a standalone run died on NameError.
+    The same files used to be reachable under four names -- ``benchmarks.src.analysis``,
+    ``analysis``, ``src.evaluation`` and ``evaluation`` -- held together by try/except
+    ImportError pairs. Python loads a file once per name, so most pipeline entrypoints
+    carried two live copies of seven ``analysis`` modules, and ``eval_zero_shot_transfer``
+    two of ``scoring_heads``: a class from one copy is not the other's, so an
+    ``isinstance`` check against a scorer built through the other name quietly takes the
+    wrong branch. Every module now imports as ``benchmarks.src.<package>`` (relative
+    imports inside ``analysis``); only the vendored ``open_clip`` stays top-level.
     """
 
-    @staticmethod
-    def _dual_blocks(path):
-        """Yield (try_names, except_names) for each try/except ImportError pair."""
+    ALIAS_ROOTS = ("analysis", "training", "evaluation", "data_generation", "src")
+    ENTRYPOINTS = (
+        "eval_probe_failure_inspector", "eval_per_object_alignment_intervention",
+        "eval_single_w_generalization", "train_and_save_narrow_rank32_w",
+        "train_labclip_official_recipe", "score_delta_s_for_w", "eval_w_ckpts_mcq",
+        "compare_paper_rerun", "eval_zero_shot_transfer", "eval_scoring_heads",
+        "eval_e2_hadamard_decomposition", "eval_layerwise_linear_probe",
+        "eval_delta_loss_gallery_retrieval",
+    )
+
+    def test_no_file_imports_through_an_alias_root(self):
         import ast
-        import io
 
-        tree = ast.parse(io.open(path, encoding="utf-8").read())
+        offenders = []
+        for root in (SRC_ROOT, REPO_ROOT / "paper_figures", REPO_ROOT / "benchmarks" / "tests"):
+            for f in root.rglob("*.py"):
+                if "open_clip" in f.parts:
+                    continue
+                for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+                    if isinstance(node, ast.ImportFrom) and node.level == 0:
+                        names = [node.module]
+                    elif isinstance(node, ast.Import):
+                        names = [a.name for a in node.names]
+                    else:
+                        continue
+                    offenders += [f"{f.relative_to(REPO_ROOT)}:{node.lineno} {n}"
+                                  for n in names if n.split(".")[0] in self.ALIAS_ROOTS]
+        assert not offenders, "import these as benchmarks.src.<package>: " + ", ".join(offenders)
 
-        def bound(stmts):
-            out = set()
-            for st in ast.walk(ast.Module(body=list(stmts), type_ignores=[])):
-                if isinstance(st, (ast.Import, ast.ImportFrom)):
-                    for a in st.names:
-                        out.add(a.asname or a.name.split(".")[0])
-            return out
+    def test_entrypoints_load_each_file_once(self):
+        import os
+        import subprocess
+        import sys
 
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Try):
-                continue
-            for h in node.handlers:
-                name = getattr(h.type, "id", None)
-                if name == "ImportError":
-                    yield bound(node.body), bound(h.body)
-
-    @staticmethod
-    def _dual_path_files():
-        import io
-
-        out = []
-        for f in SRC_ROOT.rglob("*.py"):
-            if "open_clip" in f.parts or "training" in f.parts:
-                continue
-            s = io.open(f, encoding="utf-8").read()
-            if "except ImportError:" in s and "benchmarks.src." in s:
-                out.append(str(f))
-        assert out, f"no dual-path modules found under {SRC_ROOT}; the scan root is wrong"
-        return sorted(out)
-
-    def test_both_branches_bind_the_same_names(self):
-        drifted = []
-        for f in self._dual_path_files():
-            for tnames, enames in self._dual_blocks(f):
-                # the guard helper is expected only in the fallback branch
-                enames = enames - {"reraise_unless_standalone"}
-                if tnames != enames:
-                    drifted.append((f, sorted(tnames ^ enames)))
-        assert not drifted, (
-            "a name is bound in only one import branch, so one invocation "
-            "convention will fail at runtime: " + repr(drifted)
+        code = (
+            "import collections, importlib, os, sys\n"
+            f"for m in {self.ENTRYPOINTS!r}:\n"
+            "    importlib.import_module('benchmarks.src.evaluation.' + m)\n"
+            "by_file = collections.defaultdict(set)\n"
+            "for name, mod in list(sys.modules.items()):\n"
+            "    f = getattr(mod, '__file__', None)\n"
+            f"    if f and os.path.realpath(f).startswith({str(REPO_ROOT)!r}):\n"
+            "        by_file[os.path.realpath(f)].add(name)\n"
+            "print(sorted(sorted(v) for v in by_file.values() if len(v) > 1))\n"
         )
-
-    def test_fallback_branches_are_guarded(self):
-        unguarded = []
-        for f in self._dual_path_files():
-            for _, enames in self._dual_blocks(f):
-                if "reraise_unless_standalone" not in enames:
-                    unguarded.append(f)
-        assert not unguarded, (
-            "a bare except ImportError swallows real failures; call "
-            "reraise_unless_standalone() first in: " + repr(sorted(set(unguarded)))
-        )
-
-    def test_guard_reraises_when_benchmarks_is_importable(self):
-        from analysis.import_compat import reraise_unless_standalone
-
-        with pytest.raises(ImportError):
-            try:
-                from benchmarks.src.analysis.no_such_module import thing  # noqa: F401
-            except ImportError:
-                reraise_unless_standalone()
-
-        with pytest.raises(ImportError):
-            try:
-                from benchmarks.src.analysis.feature_cache import no_such_name  # noqa: F401
-            except ImportError:
-                reraise_unless_standalone()
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(REPO_ROOT), str(SRC_ROOT)]))
+        proc = subprocess.run([sys.executable, "-W", "ignore", "-c", code], cwd=str(REPO_ROOT),
+                              env=env, capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr[-3000:]
+        assert proc.stdout.strip().splitlines()[-1] == "[]", "loaded twice: " + proc.stdout
 
 
 class TestLayerKeyScheme:
@@ -798,15 +774,15 @@ class TestLayerKeyScheme:
     """
 
     def test_formatter_covers_the_embedding_and_the_blocks(self):
-        from analysis.config import layer_key
+        from benchmarks.src.analysis.config import layer_key
 
         assert layer_key(0) == "Embedding"
         assert [layer_key(i) for i in (1, 9, 12)] == ["Layer 1", "Layer 9", "Layer 12"]
 
     def test_extractor_emits_one_scheme_per_dict(self):
-        from analysis.config import PipelineStep, layer_key
-        from analysis.extractor import extract_all_features_unified
-        from analysis.model_loader import load_clip_for_eval
+        from benchmarks.src.analysis.config import PipelineStep, layer_key
+        from benchmarks.src.analysis.extractor import extract_all_features_unified
+        from benchmarks.src.analysis.model_loader import load_clip_for_eval
 
         model, _, tokenizer = load_clip_for_eval("ViT-B-32", None, device="cpu")
         res = extract_all_features_unified(
@@ -849,7 +825,7 @@ class TestNestedFeatureMasking:
     """
 
     def test_every_nested_dict_is_masked(self):
-        from analysis.config import filter_vision_dict
+        from benchmarks.src.analysis.config import filter_vision_dict
 
         vis = {
             "layers": {"Layer 1": np.arange(20).reshape(10, 2)},
@@ -953,7 +929,7 @@ class TestHeadlessPlotting:
     def test_shared_module_selects_agg(self):
         import matplotlib
 
-        from analysis.plotting import plt  # noqa: F401
+        from benchmarks.src.analysis.plotting import plt  # noqa: F401
 
         assert matplotlib.get_backend().lower() == "agg"
 
@@ -1082,13 +1058,13 @@ class TestEmbeddingWidthIsRead:
 
     @pytest.mark.parametrize("model_name,expected", BACKBONES)
     def test_helper_reads_the_real_width(self, model_name, expected):
-        from analysis.model_loader import get_embed_dim, load_clip_for_eval
+        from benchmarks.src.analysis.model_loader import get_embed_dim, load_clip_for_eval
 
         model, _, _ = load_clip_for_eval(model_name, None, device="cpu")
         assert get_embed_dim(model) == expected
 
     def test_unreadable_model_raises_instead_of_guessing(self):
-        from analysis.model_loader import get_embed_dim
+        from benchmarks.src.analysis.model_loader import get_embed_dim
 
         with pytest.raises(AttributeError, match="rather than assuming 512"):
             get_embed_dim(object())

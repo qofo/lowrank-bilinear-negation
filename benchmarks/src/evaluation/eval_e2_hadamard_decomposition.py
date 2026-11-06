@@ -44,36 +44,17 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-import open_clip
-
-try:
-    from benchmarks.src.analysis.model_loader import load_clip_for_eval
-    from benchmarks.src.analysis.cli import (
+from benchmarks.src.analysis.model_loader import load_clip_for_eval
+from benchmarks.src.analysis.cli import (
     add_model_args, add_run_args, add_data_args, add_cache_args,
-    add_restriction_args, add_concept_args, add_bias_args,
-    )
-    from benchmarks.src.analysis.beaf.vision_mechanisms import extract_vision_features_unified
-    from benchmarks.src.analysis.feature_cache import (
-        cached_encode, build_provenance, load_object_restriction, resolve_upstream_artifact,
-        DEFAULT_CACHE_DIR,
-    )
-    from benchmarks.src.analysis.config import set_seed, coerce_bool_column
-    from benchmarks.src.analysis.paths import resolve_image_path as resolve_path
-except ImportError:
-    from analysis.import_compat import reraise_unless_standalone
-    reraise_unless_standalone()
-    from analysis.model_loader import load_clip_for_eval
-    from analysis.cli import (
-    add_model_args, add_run_args, add_data_args, add_cache_args,
-    add_restriction_args, add_concept_args, add_bias_args,
-    )
-    from analysis.beaf.vision_mechanisms import extract_vision_features_unified
-    from analysis.feature_cache import (
-        cached_encode, build_provenance, load_object_restriction, resolve_upstream_artifact,
-        DEFAULT_CACHE_DIR,
-    )
-    from analysis.config import set_seed, coerce_bool_column
-    from analysis.paths import resolve_image_path as resolve_path
+    add_restriction_args, add_concept_args,
+)
+from benchmarks.src.analysis.beaf.vision_mechanisms import extract_vision_features_unified
+from benchmarks.src.analysis.feature_cache import (
+    cached_encode, build_provenance, load_object_restriction, resolve_upstream_artifact,
+)
+from benchmarks.src.analysis.config import set_seed, coerce_bool_column
+from benchmarks.src.analysis.paths import resolve_image_path as resolve_path
 
 
 def encode_images_unified(

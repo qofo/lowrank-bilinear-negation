@@ -102,7 +102,6 @@ def main():
     lo = np.array([t.loc[f"lowrank_{r}", "ci_lo"] for r in RANKS])
     hi = np.array([t.loc[f"lowrank_{r}", "ci_hi"] for r in RANKS])
     tr = np.array([t.loc[f"lowrank_{r}", "train_foldmean"] for r in RANKS])
-    cos = t.loc["identity", "unseen_pooled"]
 
     fig = plt.figure(figsize=(WIDTH_IN, HEIGHT_IN), dpi=400)
     ax = fig.add_axes([0.098, 0.215, 0.89, 0.765])

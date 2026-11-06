@@ -54,7 +54,6 @@ Usage:
 import os
 import json
 import argparse
-import math
 from types import SimpleNamespace
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -69,47 +68,22 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-import open_clip
-
-# Reuse existing verified infrastructure (robust to module vs standalone execution)
-try:
-    from benchmarks.src.analysis.model_loader import load_clip_for_eval, get_embed_dim
-    from benchmarks.src.analysis.cli import (
+# Shared infrastructure
+from benchmarks.src.analysis.model_loader import load_clip_for_eval, get_embed_dim
+from benchmarks.src.analysis.cli import (
     add_model_args, add_run_args, add_data_args, add_cache_args,
     add_restriction_args, add_concept_args, add_bias_args,
-    )
-    from benchmarks.src.analysis.config import (
-        get_layer_features as _get_feats, coerce_bool_column, set_seed,
-    )
-    from benchmarks.src.analysis.beaf.beaf_loader import load_and_verify_counterfactual_pairs
-    from benchmarks.src.analysis.beaf.vision_mechanisms import extract_vision_features_unified
-    from benchmarks.src.analysis.feature_cache import (
-        cached_encode, build_provenance, load_object_restriction, DEFAULT_CACHE_DIR,
-    )
-    from benchmarks.src.evaluation.eval_layerwise_linear_probe import extract_layerwise_feature_dict
-    from benchmarks.src.evaluation.eval_e2_hadamard_decomposition import (
-        compute_hadamard_coordinates, compute_main_effect_ablation,
-    )
-except ImportError:
-    from analysis.import_compat import reraise_unless_standalone
-    reraise_unless_standalone()
-    from analysis.model_loader import load_clip_for_eval, get_embed_dim
-    from analysis.cli import (
-    add_model_args, add_run_args, add_data_args, add_cache_args,
-    add_restriction_args, add_concept_args, add_bias_args,
-    )
-    from analysis.config import (
-        get_layer_features as _get_feats, coerce_bool_column, set_seed,
-    )
-    from analysis.beaf.beaf_loader import load_and_verify_counterfactual_pairs
-    from analysis.beaf.vision_mechanisms import extract_vision_features_unified
-    from analysis.feature_cache import (
-        cached_encode, build_provenance, load_object_restriction, DEFAULT_CACHE_DIR,
-    )
-    from evaluation.eval_layerwise_linear_probe import extract_layerwise_feature_dict
-    from evaluation.eval_e2_hadamard_decomposition import (
-        compute_hadamard_coordinates, compute_main_effect_ablation,
-    )
+)
+from benchmarks.src.analysis.config import coerce_bool_column, set_seed
+from benchmarks.src.analysis.beaf.beaf_loader import load_and_verify_counterfactual_pairs
+from benchmarks.src.analysis.beaf.vision_mechanisms import extract_vision_features_unified
+from benchmarks.src.analysis.feature_cache import (
+    cached_encode, build_provenance, load_object_restriction, DEFAULT_CACHE_DIR,
+)
+from benchmarks.src.evaluation.eval_layerwise_linear_probe import extract_layerwise_feature_dict
+from benchmarks.src.evaluation.eval_e2_hadamard_decomposition import (
+    compute_hadamard_coordinates, compute_main_effect_ablation,
+)
 
 
 CONDITION_NAMES = [

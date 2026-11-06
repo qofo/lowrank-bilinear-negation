@@ -6,12 +6,11 @@ verification for beaf_counterfactual_6col.csv datasets.
 """
 
 import os
-from typing import List, Dict, Tuple, Optional
+from typing import List, Tuple
 
-import numpy as np
 import pandas as pd
 
-from analysis.config import MetadataKey, to_bool
+from ..config import MetadataKey, to_bool
 
 
 def load_beaf_csv(csv_path: str, image_root: str) -> Tuple[pd.DataFrame, List[dict]]:

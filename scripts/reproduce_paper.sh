@@ -26,7 +26,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export PYTHONPATH="$PWD:$PWD/benchmarks:$PWD/benchmarks/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$PWD:$PWD/benchmarks/src${PYTHONPATH:+:$PYTHONPATH}"
 # The reference numbers were produced with 4 BLAS/torch threads; other counts can move the last digits.
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}" MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
 export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-4}" NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-4}"

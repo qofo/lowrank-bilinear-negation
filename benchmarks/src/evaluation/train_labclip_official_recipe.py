@@ -29,7 +29,6 @@ Usage:
         --output_dir logs/evaluation/01_paper/2026-09-01_labclip_official_recipe
 """
 import os
-import sys
 import json
 import argparse
 
@@ -43,7 +42,6 @@ from tqdm import tqdm
 
 import open_clip
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 from benchmarks.src.analysis.config import set_seed
 from benchmarks.src.analysis.paths import resolve_image_path
 

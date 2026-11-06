@@ -10,7 +10,6 @@ Reuses the unified feature extraction engine from `benchmarks.src.analysis.extra
 
 import os
 import argparse
-import json
 from typing import List, Dict, Any, Tuple
 
 import numpy as np
@@ -25,14 +24,8 @@ import matplotlib.pyplot as plt
 
 import open_clip
 
-try:
-    from benchmarks.src.analysis.config import PipelineStep
-    from benchmarks.src.analysis.extractor import extract_all_features_unified
-except ImportError:
-    from analysis.import_compat import reraise_unless_standalone
-    reraise_unless_standalone()
-    from analysis.config import PipelineStep
-    from analysis.extractor import extract_all_features_unified
+from benchmarks.src.analysis.config import PipelineStep
+from benchmarks.src.analysis.extractor import extract_all_features_unified
 
 
 def extract_layerwise_feature_dict(
