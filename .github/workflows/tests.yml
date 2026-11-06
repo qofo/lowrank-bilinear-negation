@@ -1,0 +1,45 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # A pull request from a branch of this repository is already tested by that branch's push.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    name: ${{ matrix.suite }} (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 3.9 is the version the reference results were produced with.
+          - { python: "3.9", suite: tests, pytest_args: "" }
+          - { python: "3.12", suite: tests, pytest_args: "" }
+          # Every reproduce_paper.sh stage on a tiny synthetic set (about 2 minutes on CPU).
+          - { python: "3.12", suite: pipeline, pytest_args: "-m pipeline" }
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install CPU-only PyTorch and the pinned requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchvision==0.23.0
+          pip install -r requirements.txt
+      - name: Run pytest
+        run: python -m pytest benchmarks/tests ${{ matrix.pytest_args }}
