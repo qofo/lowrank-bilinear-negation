@@ -1202,3 +1202,115 @@ class TestSingleWGeneralization:
         assert build_family("full", 512, 0)[1] == 512 * 512
 
 
+
+
+class TestEmbeddingCacheKey:
+    """
+    The MCQ and retrieval embedding caches were named after the CSV alone. A run made while
+    some images were still missing cached the reduced set, and every later run with the same
+    cache directory read it back -- after the images had been added, and for any backbone.
+    """
+
+    class _Model:
+        """Deterministic stand-in for a CLIP model: each embedding is a function of its input."""
+
+        def __init__(self, scale=1.0):
+            self.scale = scale
+
+        def eval(self):
+            return self
+
+        def encode_image(self, x):
+            return x.flatten(1)[:, :4] * self.scale + 1.0
+
+        def encode_text(self, tokens):
+            return tokens[:, :4].float() * self.scale + 1.0
+
+    class _MustNotEncode(_Model):
+        def encode_image(self, x):
+            raise AssertionError("re-encoded although a valid cache entry exists")
+
+    @staticmethod
+    def _tokenizer(captions):
+        import torch
+
+        return torch.tensor([[len(c), sum(map(ord, c)) % 97, c.count(" "), 1] for c in captions])
+
+    @staticmethod
+    def _preprocess(img):
+        import torch
+
+        return torch.from_numpy(np.asarray(img.resize((4, 4)), dtype=np.float32) / 255.0).permute(2, 0, 1)
+
+    @staticmethod
+    def _write_image(root, i):
+        from PIL import Image
+
+        (root / "imgs").mkdir(exist_ok=True)
+        rgb = np.random.default_rng(i).integers(0, 255, (8, 8, 3), dtype=np.uint8)
+        Image.fromarray(rgb).save(root / "imgs" / f"{i}.png")
+
+    def _mcq_csv(self, root, present):
+        for i in present:
+            self._write_image(root, i)
+        pd.DataFrame({
+            "image_path": [f"imgs/{i}.png" for i in range(4)],
+            "correct_answer": [0, 1, 2, 3],
+            **{f"caption_{k}": [f"caption {k} of image {i}" for i in range(4)] for k in range(4)},
+            "correct_answer_template": ["positive", "negative", "hybrid", "negative"],
+        }).to_csv(root / "mcq.csv", index=False)
+        return str(root / "mcq.csv")
+
+    def _extract(self, model, csv, cache, **key):
+        from benchmarks.src.evaluation.eval_scoring_heads import extract_mcq_embeddings
+
+        key = {"model_name": "ViT-B-32", "pretrained": "openai", **key}
+        return extract_mcq_embeddings(model, self._tokenizer, self._preprocess, csv, device="cpu",
+                                      cache_dir=str(cache), **key)
+
+    def test_partial_extraction_is_not_cached(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        csv = self._mcq_csv(tmp_path, present=[0, 1, 2])
+        assert self._extract(self._Model(), csv, tmp_path / "cache")[0].shape[0] == 3
+        self._write_image(tmp_path, 3)
+        assert self._extract(self._Model(), csv, tmp_path / "cache")[0].shape[0] == 4
+
+    def test_complete_extraction_is_reused_only_for_the_same_backbone_and_csv(self, tmp_path, monkeypatch):
+        import torch
+
+        monkeypatch.chdir(tmp_path)
+        cache = tmp_path / "cache"
+        csv = self._mcq_csv(tmp_path, present=range(4))
+        first = self._extract(self._Model(), csv, cache)
+        reused = self._extract(self._MustNotEncode(), csv, cache)
+        assert torch.equal(first[0], reused[0])
+
+        other = self._extract(self._Model(scale=-1.0), csv, cache, pretrained="laion2b_s34b_b79k")
+        assert not torch.equal(first[0], other[0])
+
+        df = pd.read_csv(csv)
+        df.loc[0, "caption_0"] = "an edited caption"
+        df.to_csv(csv, index=False)
+        with pytest.raises(AssertionError, match="re-encoded"):
+            self._extract(self._MustNotEncode(), csv, cache)
+
+    def test_retrieval_partial_extraction_is_counted_and_not_cached(self, tmp_path, monkeypatch, capsys):
+        from benchmarks.src.evaluation.eval_zero_shot_transfer import extract_retrieval_embeddings
+
+        monkeypatch.chdir(tmp_path)
+        for i in range(3):
+            self._write_image(tmp_path, i)
+        pd.DataFrame({"filepath": [f"imgs/{i}.png" for i in range(4)],
+                      "captions": [str([f"a photo {i}", f"another photo {i}"]) for i in range(4)]}
+                     ).to_csv(tmp_path / "retrieval.csv", index=False)
+        kw = dict(device="cpu", cache_dir=str(tmp_path / "cache"), model_name="ViT-B-32", pretrained="openai")
+
+        images, texts, index = extract_retrieval_embeddings(
+            self._Model(), self._tokenizer, self._preprocess, str(tmp_path / "retrieval.csv"), **kw)
+        assert images.shape[0] == 3 and texts.shape[0] == 6
+        assert "Dropped 1/4 images" in capsys.readouterr().out
+
+        self._write_image(tmp_path, 3)
+        images, _, _ = extract_retrieval_embeddings(
+            self._Model(), self._tokenizer, self._preprocess, str(tmp_path / "retrieval.csv"), **kw)
+        assert images.shape[0] == 4

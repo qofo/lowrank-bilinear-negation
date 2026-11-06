@@ -40,7 +40,7 @@ def main():
     ap.add_argument("--pretrained", default="openai")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--cache_dir", default="logs/evaluation/cached_embeddings",
-                    help="MCQ embedding cache, keyed by CSV name only; point at an empty dir to re-encode")
+                    help="MCQ embedding cache, keyed by backbone, CSV contents and image location")
     args = ap.parse_args()
     set_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -53,7 +53,7 @@ def main():
     for csv in args.targets:
         img, txt, targets, qtypes, _ = extract_mcq_embeddings(
             model, tokenizer, preprocess, csv, device=device, batch_size=64, image_root="",
-            cache_dir=args.cache_dir)
+            cache_dir=args.cache_dir, model_name=args.model, pretrained=args.pretrained)
         dim = img.shape[1]
         res = {"cosine": evaluate_zero_shot_scorer(CosineScorer(dim), img, txt, targets, qtypes, device=device)}
         for path in args.ckpts:
