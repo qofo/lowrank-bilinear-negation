@@ -42,6 +42,7 @@ from benchmarks.src.evaluation.scoring_heads import (
     predict_with_tie_report,
 )
 from benchmarks.src.evaluation.eval_scoring_heads import (
+    embedding_cache_path,
     extract_mcq_embeddings,
     compute_mcq_accuracy_breakdown,
 )
@@ -61,16 +62,21 @@ def extract_retrieval_embeddings(
     csv_file: str,
     device: str = "cuda",
     batch_size: int = 64,
-    image_root: str = ""
+    image_root: str = "",
+    cache_dir: str = "logs/evaluation/cached_embeddings",
+    *,
+    model_name: str,
+    pretrained: str,
 ) -> Tuple[torch.Tensor, torch.Tensor, List[int]]:
     """
     Extract frozen CLIP image embeddings (N_img, D), text embeddings (N_txt, D),
     and ground-truth image indices for Retrieval evaluation.
+
+    Cached like `extract_mcq_embeddings`: keyed by backbone, CSV contents and image location,
+    and an extraction that dropped any row is returned but not cached.
     """
-    cache_dir = "logs/evaluation/cached_embeddings"
     os.makedirs(cache_dir, exist_ok=True)
-    csv_basename = os.path.basename(csv_file).replace(".csv", "")
-    cache_path = os.path.join(cache_dir, f"{csv_basename}_retrieval_embeds.pt")
+    cache_path = embedding_cache_path(cache_dir, csv_file, "retrieval_embeds", model_name, pretrained, image_root)
 
     if os.path.exists(cache_path):
         print(f"\n⚡ Loading pre-cached Retrieval CLIP embeddings from disk cache: {cache_path}")
@@ -96,6 +102,9 @@ def extract_retrieval_embeddings(
     print(f"\nExtracting Retrieval Embeddings for {len(df)} images from {csv_file}...")
 
     img_counter = 0
+    n_missing = 0
+    n_decode_failed = 0
+    first_decode_error = None
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="Caching Retrieval Features"):
         rel_img_path = str(row[img_col])
         full_img_path = rel_img_path
@@ -112,12 +121,16 @@ def extract_retrieval_embeddings(
                     break
 
         if not os.path.exists(full_img_path):
+            n_missing += 1
             continue
 
         try:
             img = Image.open(full_img_path).convert("RGB")
             img_tensor = preprocess(img).unsqueeze(0).to(device)
-        except Exception:
+        except Exception as exc:
+            n_decode_failed += 1
+            if first_decode_error is None:
+                first_decode_error = f"{full_img_path}: {exc!r}"
             continue
 
         cap_val = row[cap_col]
@@ -141,6 +154,15 @@ def extract_retrieval_embeddings(
 
     images_emb = torch.cat(img_embed_list, dim=0) # (N_img, D)
     texts_emb = torch.cat(text_embed_list, dim=0)  # (N_txt, D)
+
+    n_dropped = n_missing + n_decode_failed
+    if n_dropped:
+        print(f"⚠️  Dropped {n_dropped}/{len(df)} images while extracting retrieval features "
+              f"({n_missing} missing on disk, {n_decode_failed} failed to decode).")
+        if first_decode_error:
+            print(f"    First decode failure: {first_decode_error}")
+        print("    Not cached: the next run re-encodes, so it picks up images added in the meantime.")
+        return images_emb, texts_emb, texts_image_index
 
     torch.save({
         "images_emb": images_emb,
@@ -361,7 +383,8 @@ def main():
     if is_retrieval:
         print(f"\n🔍 Detected Retrieval Task Dataset: {args.target_mcq}")
         images_emb, texts_emb, texts_image_index = extract_retrieval_embeddings(
-            model, tokenizer, preprocess_val, args.target_mcq, device=device, batch_size=args.batch_size, image_root=args.image_root
+            model, tokenizer, preprocess_val, args.target_mcq, device=device, batch_size=args.batch_size, image_root=args.image_root,
+            model_name=args.model, pretrained=args.pretrained,
         )
         feature_dim = images_emb.shape[1]
 
@@ -382,7 +405,8 @@ def main():
     else:
         print(f"\n🔍 Detected MCQ/Paired Task Dataset: {args.target_mcq}")
         img_embeds, text_embeds, targets, question_types, _ = extract_mcq_embeddings(
-            model, tokenizer, preprocess_val, args.target_mcq, device=device, batch_size=args.batch_size, image_root=args.image_root
+            model, tokenizer, preprocess_val, args.target_mcq, device=device, batch_size=args.batch_size, image_root=args.image_root,
+            model_name=args.model, pretrained=args.pretrained,
         )
         feature_dim = img_embeds.shape[1]
 

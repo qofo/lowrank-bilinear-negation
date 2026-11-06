@@ -8,6 +8,7 @@ Uses 5-Fold Cross Validation to ensure leak-free out-of-fold (OOF) evaluation.
 
 import os
 import json
+import hashlib
 import argparse
 from typing import Dict, List, Tuple, Any
 
@@ -37,6 +38,25 @@ from benchmarks.src.evaluation.scoring_heads import (
 
 
 from benchmarks.src.analysis.config import set_seed  # noqa: E402 — centralized seed control
+from benchmarks.src.analysis.feature_cache import make_cache_key
+
+
+def embedding_cache_path(cache_dir: str, csv_file: str, kind: str, model_name: str, pretrained: str,
+                         image_root: str = "") -> str:
+    """
+    Cache file for one extraction: backbone, CSV contents and where its images resolve.
+
+    The file used to be named after the CSV alone, so a run with another backbone, an edited
+    CSV, or a run made before every image was in place all read back arrays that belonged to
+    something else. Relative image paths are tried against the working directory and
+    ``image_root``, so both are part of the key.
+    """
+    with open(csv_file, "rb") as f:
+        csv_digest = hashlib.sha256(f.read()).hexdigest()
+    key = make_cache_key(model_name, pretrained, kind,
+                         [csv_digest, os.getcwd(), os.path.abspath(image_root) if image_root else ""])
+    base = os.path.splitext(os.path.basename(csv_file))[0]
+    return os.path.join(cache_dir, f"{base}_{kind}_{key[:16]}.pt")
 
 
 def extract_mcq_embeddings(
@@ -48,12 +68,17 @@ def extract_mcq_embeddings(
     batch_size: int = 64,
     image_root: str = "",
     cache_dir: str = "logs/evaluation/cached_embeddings",
+    *,
+    model_name: str,
+    pretrained: str,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[str], List[List[str]]]:
     """
     Extract and cache frozen CLIP image and candidate text embeddings for MCQ dataset.
 
-    The cache file is keyed by the CSV name alone (not by model), so pass a fresh ``cache_dir``
-    to force re-encoding or when scoring a different backbone.
+    The cache is keyed by ``model_name``/``pretrained`` (the backbone ``model`` was built
+    from), the CSV contents and the image location (see `embedding_cache_path`). An
+    extraction that dropped any row is returned but not cached, so a run made before every
+    image was in place cannot stand in for a complete one later.
 
     Returns:
         img_embeds: (N, D)
@@ -81,8 +106,7 @@ def extract_mcq_embeddings(
     target_list = []
     # Check disk cache first
     os.makedirs(cache_dir, exist_ok=True)
-    csv_basename = os.path.basename(csv_file).replace(".csv", "")
-    cache_path = os.path.join(cache_dir, f"{csv_basename}_embeds.pt")
+    cache_path = embedding_cache_path(cache_dir, csv_file, "mcq_embeds", model_name, pretrained, image_root)
 
     if os.path.exists(cache_path):
         print(f"\n⚡ Loading pre-cached CLIP embeddings from disk cache: {cache_path}")
@@ -183,6 +207,10 @@ def extract_mcq_embeddings(
     all_img_embeds = torch.cat(img_embed_list, dim=0)  # (N, D)
     all_text_embeds = torch.cat(text_embed_list, dim=0)  # (N, K, D)
     all_targets = torch.tensor(target_list, dtype=torch.long)  # (N,)
+
+    if n_dropped:
+        print("    Not cached: the next run re-encodes, so it picks up images added in the meantime.")
+        return all_img_embeds, all_text_embeds, all_targets, q_type_list, cap_type_list
 
     # Save to disk cache
     torch.save({
@@ -519,7 +547,8 @@ def main():
 
     # Step 1: Cache Image & Text Embeddings
     img_embeds, text_embeds, targets, question_types, caption_types = extract_mcq_embeddings(
-        model, tokenizer, preprocess_val, args.coco_mcq, device=device, batch_size=args.batch_size, image_root=args.image_root
+        model, tokenizer, preprocess_val, args.coco_mcq, device=device, batch_size=args.batch_size, image_root=args.image_root,
+        model_name=args.model, pretrained=args.pretrained,
     )
 
     # Step 2: Evaluate 6 Scoring Heads via 5-Fold Stratified Cross Validation
