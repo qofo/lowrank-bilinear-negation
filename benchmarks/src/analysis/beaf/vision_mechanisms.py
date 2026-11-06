@@ -28,14 +28,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from analysis.config import (
+from ..config import (
     l2_normalize,
     batch_cosine_similarity,
     batch_l2_distance,
     batch_dot_product,
     layer_key,
 )
-from analysis.beaf.probe_factory import (
+from .probe_factory import (
     ElementWiseNonLinearPyTorch,
     LowRankBilinearPyTorch,
 )

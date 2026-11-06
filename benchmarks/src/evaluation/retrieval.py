@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from open_clip import get_input_dtype, get_tokenizer
-from training.precision import get_autocast
+from benchmarks.src.training.precision import get_autocast
 
 
 def evaluate_model(model, dataloader, args, tokenizer, recall_k_list=[5]):

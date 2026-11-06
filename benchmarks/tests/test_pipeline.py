@@ -30,7 +30,7 @@ MCQ_CSVS = ("COCO_val_mcq_llama3.1_rephrased.csv", "VOC2007_mcq_llama3.1_rephras
 
 
 def _env():
-    roots = [REPO, os.path.join(REPO, "benchmarks"), os.path.join(REPO, "benchmarks", "src")]
+    roots = [REPO, os.path.join(REPO, "benchmarks", "src")]
     if os.environ.get("PYTHONPATH"):
         roots.append(os.environ["PYTHONPATH"])
     return dict(os.environ, PYTHONPATH=os.pathsep.join(roots), CUDA_VISIBLE_DEVICES="", MPLBACKEND="Agg")

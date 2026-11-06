@@ -66,38 +66,20 @@ import torch.nn.functional as F
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupKFold
 
-try:
-    from benchmarks.src.analysis.cli import (
-        add_model_args, add_run_args, add_data_args, add_cache_args,
-        add_restriction_args, add_concept_args,
-    )
-    from benchmarks.src.analysis.config import set_seed, coerce_bool_column
-    from benchmarks.src.analysis.feature_cache import (
-        cached_encode, build_provenance, load_object_restriction, DEFAULT_CACHE_DIR,
-    )
-    from benchmarks.src.analysis.model_loader import load_clip_for_eval, get_embed_dim
-    from benchmarks.src.analysis.paths import resolve_image_path as resolve_path
-    from benchmarks.src.analysis.plotting import plt
-    from benchmarks.src.evaluation.eval_e2_hadamard_decomposition import (
-        encode_images_unified, encode_texts_unified,
-    )
-except ImportError:
-    from analysis.import_compat import reraise_unless_standalone
-    reraise_unless_standalone()
-    from analysis.cli import (
-        add_model_args, add_run_args, add_data_args, add_cache_args,
-        add_restriction_args, add_concept_args,
-    )
-    from analysis.config import set_seed, coerce_bool_column
-    from analysis.feature_cache import (
-        cached_encode, build_provenance, load_object_restriction, DEFAULT_CACHE_DIR,
-    )
-    from analysis.model_loader import load_clip_for_eval, get_embed_dim
-    from analysis.paths import resolve_image_path as resolve_path
-    from analysis.plotting import plt
-    from evaluation.eval_e2_hadamard_decomposition import (
-        encode_images_unified, encode_texts_unified,
-    )
+from benchmarks.src.analysis.cli import (
+    add_model_args, add_run_args, add_data_args, add_cache_args,
+    add_restriction_args, add_concept_args,
+)
+from benchmarks.src.analysis.config import set_seed, coerce_bool_column
+from benchmarks.src.analysis.feature_cache import (
+    cached_encode, build_provenance, load_object_restriction, DEFAULT_CACHE_DIR,
+)
+from benchmarks.src.analysis.model_loader import load_clip_for_eval, get_embed_dim
+from benchmarks.src.analysis.paths import resolve_image_path as resolve_path
+from benchmarks.src.analysis.plotting import plt
+from benchmarks.src.evaluation.eval_e2_hadamard_decomposition import (
+    encode_images_unified, encode_texts_unified,
+)
 
 CHANCE_PCT = 100.0 / 6.0
 

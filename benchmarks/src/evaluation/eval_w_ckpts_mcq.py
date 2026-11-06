@@ -6,7 +6,7 @@ predict_with_tie_report), but that script keys results by the checkpoint's model
 benchmark and stores one result per checkpoint file.
 
 Usage (repo root):
-    PYTHONPATH="$PWD:$PWD/benchmarks:$PWD/benchmarks/src" python -m benchmarks.src.evaluation.eval_w_ckpts_mcq \
+    PYTHONPATH="$PWD:$PWD/benchmarks/src" python -m benchmarks.src.evaluation.eval_w_ckpts_mcq \
         --ckpts logs/.../a.pt logs/.../b.pt \
         --targets benchmarks/data/images/COCO_val_mcq_llama3.1_rephrased.csv \
         --output logs/evaluation/01_paper/<run>/mcq_by_ckpt.json
@@ -18,9 +18,9 @@ import os
 import open_clip
 import torch
 
-from src.evaluation.scoring_heads import CosineScorer, build_scorer
-from src.evaluation.eval_scoring_heads import extract_mcq_embeddings
-from src.evaluation.eval_zero_shot_transfer import evaluate_zero_shot_scorer
+from benchmarks.src.evaluation.scoring_heads import CosineScorer, build_scorer
+from benchmarks.src.evaluation.eval_scoring_heads import extract_mcq_embeddings
+from benchmarks.src.evaluation.eval_zero_shot_transfer import evaluate_zero_shot_scorer
 from benchmarks.src.analysis.config import set_seed
 
 

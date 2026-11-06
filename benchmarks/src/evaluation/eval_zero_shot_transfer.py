@@ -38,7 +38,7 @@ from PIL import Image
 
 import open_clip
 
-from src.evaluation.scoring_heads import (
+from benchmarks.src.evaluation.scoring_heads import (
     BaseScorer,
     CosineScorer,
     LowRankBilinearScorer,
@@ -48,7 +48,7 @@ from src.evaluation.scoring_heads import (
     build_scorer,
     predict_with_tie_report,
 )
-from src.evaluation.eval_scoring_heads import (
+from benchmarks.src.evaluation.eval_scoring_heads import (
     extract_mcq_embeddings,
     compute_mcq_accuracy_breakdown,
 )
@@ -329,7 +329,7 @@ def main():
     transfer_results = {}
 
     def _load_scorer_from_ckpt(ckpt_path: str, feature_dim: int, rank_default: int):
-        from src.evaluation.scoring_heads import DualClassifierProductScorer
+        from benchmarks.src.evaluation.scoring_heads import DualClassifierProductScorer
         if ckpt_path.endswith(".npz"):
             data = np.load(ckpt_path)
             w_t = torch.from_numpy(data["w_t"]).float()

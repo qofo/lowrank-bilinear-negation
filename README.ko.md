@@ -69,7 +69,7 @@ pip install -r requirements.txt
 NegBench가 수정한 OpenCLIP을 `benchmarks/src/open_clip`에 넣어 두었으며, pip로 따로 설치하지 않습니다. 아래 스크립트들은 `PYTHONPATH`를 알아서 설정합니다. 모듈을 직접 실행하실 때는 저장소 루트에서 먼저 다음을 실행해 주십시오.
 
 ```bash
-export PYTHONPATH="$PWD:$PWD/benchmarks:$PWD/benchmarks/src"
+export PYTHONPATH="$PWD:$PWD/benchmarks/src"
 ```
 
 ## 데이터

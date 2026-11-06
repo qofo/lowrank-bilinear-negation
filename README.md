@@ -69,7 +69,7 @@ pip install -r requirements.txt
 We use NegBench's modified copy of OpenCLIP. It lives in `benchmarks/src/open_clip` and is not pip-installed. The scripts below set `PYTHONPATH` for you. If you run a module directly, do this first from the repo root:
 
 ```bash
-export PYTHONPATH="$PWD:$PWD/benchmarks:$PWD/benchmarks/src"
+export PYTHONPATH="$PWD:$PWD/benchmarks/src"
 ```
 
 ## Data
