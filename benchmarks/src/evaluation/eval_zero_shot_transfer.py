@@ -17,10 +17,8 @@ Usage:
 """
 
 import os
-import sys
 import json
 import argparse
-import random
 import ast
 from typing import Dict, List, Tuple, Any
 
@@ -33,7 +31,6 @@ from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from PIL import Image
 
 import open_clip
@@ -41,10 +38,6 @@ import open_clip
 from benchmarks.src.evaluation.scoring_heads import (
     BaseScorer,
     CosineScorer,
-    LowRankBilinearScorer,
-    NonLinearBiEncoderScorer,
-    BilinearScorer,
-    DeepMLPScorer,
     build_scorer,
     predict_with_tie_report,
 )

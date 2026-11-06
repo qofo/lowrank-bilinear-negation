@@ -6,9 +6,8 @@ verification for beaf_counterfactual_6col.csv datasets.
 """
 
 import os
-from typing import List, Dict, Tuple, Optional
+from typing import List, Tuple
 
-import numpy as np
 import pandas as pd
 
 from ..config import MetadataKey, to_bool

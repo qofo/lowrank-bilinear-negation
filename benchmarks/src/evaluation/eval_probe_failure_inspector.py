@@ -23,7 +23,6 @@ Usage:
 import os
 import json
 import argparse
-import math
 from typing import Dict, Any, List, Tuple
 
 import numpy as np
@@ -35,11 +34,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-import open_clip
-
 from benchmarks.src.analysis.cli import (
-    add_model_args, add_run_args, add_data_args, add_cache_args,
-    add_restriction_args, add_concept_args, add_bias_args,
+    add_model_args, add_run_args, add_data_args, add_restriction_args, add_concept_args,
 )
 
 # Reuse existing verified infrastructure

@@ -72,7 +72,7 @@ from benchmarks.src.analysis.cli import (
 )
 from benchmarks.src.analysis.config import set_seed, coerce_bool_column
 from benchmarks.src.analysis.feature_cache import (
-    cached_encode, build_provenance, load_object_restriction, DEFAULT_CACHE_DIR,
+    cached_encode, build_provenance, load_object_restriction,
 )
 from benchmarks.src.analysis.model_loader import load_clip_for_eval, get_embed_dim
 from benchmarks.src.analysis.paths import resolve_image_path as resolve_path

@@ -54,7 +54,6 @@ Usage:
 import os
 import json
 import argparse
-import math
 from types import SimpleNamespace
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -69,17 +68,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-import open_clip
-
 # Shared infrastructure
 from benchmarks.src.analysis.model_loader import load_clip_for_eval, get_embed_dim
 from benchmarks.src.analysis.cli import (
     add_model_args, add_run_args, add_data_args, add_cache_args,
     add_restriction_args, add_concept_args, add_bias_args,
 )
-from benchmarks.src.analysis.config import (
-    get_layer_features as _get_feats, coerce_bool_column, set_seed,
-)
+from benchmarks.src.analysis.config import coerce_bool_column, set_seed
 from benchmarks.src.analysis.beaf.beaf_loader import load_and_verify_counterfactual_pairs
 from benchmarks.src.analysis.beaf.vision_mechanisms import extract_vision_features_unified
 from benchmarks.src.analysis.feature_cache import (

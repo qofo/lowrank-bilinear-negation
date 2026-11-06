@@ -10,7 +10,7 @@ Contains feature extraction and quantitative mechanism analyses:
 
 import os
 import json
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -21,7 +21,6 @@ from scipy import stats
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
-from sklearn.decomposition import TruncatedSVD
 from sklearn.model_selection import GroupKFold, StratifiedKFold, cross_val_score
 from PIL import Image
 import matplotlib
@@ -162,8 +161,6 @@ def extract_vision_features_unified(
 
         stacked = torch.stack(tensors, dim=0).to(device)
         with torch.no_grad():
-            cast_dtype = transformer.get_cast_dtype() if hasattr(transformer, "get_cast_dtype") else stacked.dtype
-
             # make a patches
             if conv1 is not None:
                 x = conv1(stacked)
@@ -578,7 +575,6 @@ def compute_vision_linear_probe(
     fig, ax = plt.subplots(figsize=(12, 6))
     layers = list(probe_results.keys())
     accs = [item["mean_accuracy_pct"] for item in probe_results.values()]
-    stds = [item["std_accuracy_pct"] for item in probe_results.values()]
 
     x_coords = list(range(len(layers)))
     ax.plot(x_coords, accs, "o-", color="#1f77b4", lw=2.5, ms=7, label="5-Fold CV Accuracy (%)")
