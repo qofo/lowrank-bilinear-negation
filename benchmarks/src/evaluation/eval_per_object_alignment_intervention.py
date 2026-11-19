@@ -859,6 +859,15 @@ def run_per_object_alignment_intervention(
 
         per_obj_records.append(obj_row)
 
+    if not per_obj_records:
+        # Without this the run wrote an empty CSV and then died on a KeyError in the plots.
+        scope = " among --restrict_objects" if restrict is not None else ""
+        raise ValueError(
+            f"no object{scope} has at least {min_pairs_per_obj} image pairs and {min_pairs_per_obj} "
+            f"affirmative and negated captions (--min_pairs {min_pairs_per_obj}): {len(vis_objects)} "
+            f"objects have image pairs, {len(txt_objects)} meet the caption threshold, "
+            f"{len(common_objects)} have both. Lower --min_pairs or widen the object set.")
+
     df_results = pd.DataFrame(per_obj_records)
     csv_out = os.path.join(output_dir, "per_object_intervention_results.csv")
     df_results.to_csv(csv_out, index=False)
